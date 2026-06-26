@@ -1,0 +1,182 @@
+// mc_sv-panel Go 백엔드용 경량 API 클라이언트.
+// 프로덕션에서는 동일 출처(Go가 정적 사이트와 /api를 함께 서빙). 로컬 `next dev`에서는
+// NEXT_PUBLIC_API_BASE=http://localhost:8080으로 설정한다(PANEL_ALLOW_ORIGIN을 켠 Go).
+
+const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+const TOKEN_KEY = "mc_sv_panel_token";
+
+export type Player = { name: string; uuid: string; ping: number };
+
+export type Status = {
+  server_up: boolean;
+  count: number;
+  max: number;
+  tps: number;
+  players: Player[];
+  max_concurrent: number;
+  updated_ts: number;
+};
+
+export type ChatMessage = {
+  id: number;
+  ts: number;
+  source: "game" | "discord" | "web";
+  user: string;
+  uuid: string;
+  text: string;
+};
+
+export class UnauthorizedError extends Error {}
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+export function setToken(t: string) {
+  try {
+    localStorage.setItem(TOKEN_KEY, t);
+  } catch {
+    /* 무시 */
+  }
+}
+export function clearToken() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* 무시 */
+  }
+}
+
+async function authed(path: string, init?: RequestInit): Promise<Response> {
+  const t = getToken();
+  if (!t) throw new UnauthorizedError();
+  const r = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers ?? {}),
+      Authorization: `Bearer ${t}`,
+    },
+  });
+  if (r.status === 401) {
+    clearToken();
+    throw new UnauthorizedError();
+  }
+  return r;
+}
+
+export async function login(code: string): Promise<void> {
+  const r = await fetch(`${BASE}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!r.ok) {
+    if (r.status === 429) throw new Error("too_many");
+    throw new Error("invalid");
+  }
+  const data = (await r.json()) as { token: string };
+  setToken(data.token);
+}
+
+export async function logout(): Promise<void> {
+  const t = getToken();
+  clearToken();
+  try {
+    await fetch(`${BASE}/api/logout`, {
+      method: "POST",
+      headers: t ? { Authorization: `Bearer ${t}` } : undefined,
+    });
+  } catch {
+    /* 무시 */
+  }
+}
+
+// 세션 닉네임을 반환한다(아직 설정 안 됐으면 빈 문자열).
+export async function getMe(): Promise<{ nickname: string }> {
+  const r = await authed("/api/me");
+  if (!r.ok) throw new Error("me_failed");
+  return (await r.json()) as { nickname: string };
+}
+
+export async function setNickname(nickname: string): Promise<void> {
+  const r = await authed("/api/nickname", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nickname }),
+  });
+  if (!r.ok) {
+    if (r.status === 409) throw new Error("taken");
+    throw new Error("invalid");
+  }
+}
+
+export async function fetchStatus(): Promise<Status> {
+  const r = await authed("/api/status");
+  if (!r.ok) throw new Error("status_failed");
+  return (await r.json()) as Status;
+}
+
+export async function fetchChat(
+  since: number,
+): Promise<{ messages: ChatMessage[]; last_id: number }> {
+  const r = await authed(`/api/chat?since=${since}`);
+  if (!r.ok) throw new Error("chat_failed");
+  return (await r.json()) as { messages: ChatMessage[]; last_id: number };
+}
+
+export async function sendChat(text: string): Promise<void> {
+  const r = await authed("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok) {
+    if (r.status === 429) throw new Error("slow_down");
+    if (r.status === 409) throw new Error("no_nickname");
+    throw new Error("send_failed");
+  }
+}
+
+export type PerfDim = { name: string; chunks: number; entities: number };
+export type PerfCurrent = {
+  ts: number;
+  count: number;
+  tps: number;
+  mspt: number;
+  mspt_p95: number;
+  mspt_p99: number;
+  mspt_max: number;
+  period_p95: number;
+  period_max: number;
+  spikes_50: number;
+  spikes_100: number;
+  players: Player[];
+  dims: PerfDim[];
+};
+export type PerfHist = {
+  ts: number;
+  tps: number;
+  mspt: number;
+  p95: number;
+  count: number;
+  spikes: number;
+};
+export type Perf = {
+  tracking: boolean;
+  current: PerfCurrent | null;
+  history: PerfHist[];
+};
+
+export async function fetchPerf(): Promise<Perf> {
+  const r = await authed("/api/perf");
+  if (!r.ok) throw new Error("perf_failed");
+  return (await r.json()) as Perf;
+}
+
+export function avatarUrl(uuid: string, name: string): string {
+  const key = uuid || name || "steve";
+  return `https://mc-heads.net/avatar/${key}/64`;
+}

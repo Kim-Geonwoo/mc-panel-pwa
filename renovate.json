@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Asia/Seoul",
+  "schedule": ["before 9am on monday"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "packageRules": [
+    {
+      "description": "patch/minor(+핀/다이제스트)는 GitHub 네이티브 자동병합으로 머지 — 필수 체크(CI, CodeQL) 통과를 기다린다. 브랜치 보호가 게이트를 강제하고, 3일 쿨다운도 함께 적용된다.",
+      "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+      "automerge": true,
+      "platformAutomerge": true
+    },
+    {
+      "description": "메이저 업데이트는 항상 사람이 검토한다.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["major-update"]
+    },
+    {
+      "description": "GitHub Actions 다이제스트 업데이트를 한 PR로 묶는다.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    }
+  ],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "보안 수정은 쿨다운을 건너뛰고 즉시 진행한다.",
+    "minimumReleaseAge": null,
+    "labels": ["security"]
+  }
+}

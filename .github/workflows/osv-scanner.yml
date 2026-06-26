@@ -1,0 +1,29 @@
+name: OSV-Scanner
+
+# OSV.dev 데이터베이스 기반 의존성 취약점 분석(SCA) — Go 모듈과 npm 트리.
+# 결과를 로그로 리포트하며, 코드 스캐닝(SARIF) 활성화에 의존하지 않는다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1" # 매주 월요일 04:41 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: OSV-Scanner 설치 및 스캔
+        continue-on-error: true # 발견 항목은 로그로 보고하되 빌드를 막지 않는다
+        run: |
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.0.2
+          "$(go env GOPATH)/bin/osv-scanner" scan source -r . || true

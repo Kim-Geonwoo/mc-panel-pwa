@@ -1,0 +1,26 @@
+name: gitleaks
+
+# CI 단계 시크릿 스캔(GitHub 네이티브 시크릿 스캐닝/푸시 보호 위에 더하는 다층 방어).
+# 공개 저장소는 무료.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "5 6 * * 1" # 매주 월요일 06:05 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 모든 커밋을 검사하도록 전체 히스토리
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 공개 저장소는 GITLEAKS_LICENSE 불필요.
