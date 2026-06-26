@@ -1,0 +1,17 @@
+# gitleaks 설정 — 기본 내장 룰셋을 확장한다.
+# 참고: https://github.com/gitleaks/gitleaks
+title = "mc_sv-panel gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "시크릿이 아니지만 스캐너가 오탐할 수 있는 값들"
+regexes = [
+  # 데모 로그인 코드 — 공개된, 의도적으로 단순한 상수(시크릿 아님)
+  '''demoLoginCode\s*=\s*"000000"''',
+]
+paths = [
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)web/out/''',
+]

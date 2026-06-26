@@ -1,0 +1,59 @@
+name: CI
+
+# main에 push/PR마다 모노레포 양쪽을 빌드·검사. 이 잡들이 Renovate 자동병합의 필수 체크가 된다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 최소 권한: CI는 읽기만 하면 된다.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: Go API (vet · fmt · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      # 액션은 태그로 두고 Renovate(helpers:pinGitHubActionDigests)가 SHA로 고정·유지한다.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache: false # 표준 라이브러리만 쓰는 모듈이라 캐시할 외부 의존성이 없다
+      - name: gofmt 검사
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt 필요:"; echo "$unformatted"; exit 1
+          fi
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+
+  web:
+    name: Next.js (typecheck · build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: 타입 검사
+        run: npx --no-install tsc --noEmit
+      - name: 빌드(정적 익스포트)
+        run: npm run build

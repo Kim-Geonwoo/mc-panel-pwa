@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 라이트 테마(기본) */
+:root {
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --card2: #eef1f5;
+  --line: #e3e7ed;
+  --fg: #161a20;
+  --muted: #687184;
+  --accent: #15a34a;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  color-scheme: light;
+}
+
+/* 다크 테마 */
+.dark {
+  --bg: #0e1014;
+  --card: #171a21;
+  --card2: #1d212a;
+  --line: #282d38;
+  --fg: #e8eaf0;
+  --muted: #8b93a7;
+  --accent: #36d36c;
+  --accent-fg: #0c1a10;
+  --danger: #ef4444;
+  color-scheme: dark;
+}
+
+:root {
+  /* 앱 셸 높이. ViewportFix가 화면 키보드를 추적하기 위해 px로 덮어쓴다 */
+  --app-h: 100dvh;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  height: 100%;
+}
+
+/* 데스크톱에서 폰 목업 뒤에 깔리는 배경 */
+.desk-backdrop {
+  background: var(--bg);
+}
+@media (min-width: 768px) {
+  .desk-backdrop {
+    background:
+      radial-gradient(1200px 600px at 50% -10%, rgba(120, 130, 160, 0.18), transparent 60%),
+      #0a0b0e;
+  }
+}
+
+/* safe-area 헬퍼(body가 아니라 앱 셸 안에 적용한다. 그래야 고정 높이 뷰포트 안에서
+   채팅 피드가 자체 스크롤을 가질 수 있다) */
+.pt-safe {
+  padding-top: max(1.25rem, env(safe-area-inset-top));
+}
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+/* 데스크톱 폰 목업에서 다이나믹 아일랜드 공간 확보 */
+@media (min-width: 768px) {
+  .pt-safe {
+    padding-top: 2.5rem;
+  }
+}
+
+/* 첫 페인트에서 깜빡임 없이 부드러운 테마 전환 */
+.theme-ready * {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
