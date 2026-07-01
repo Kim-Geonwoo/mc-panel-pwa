@@ -210,12 +210,12 @@ func (s *sessionStore) refreshRevokedLocked() {
 	s.revokedMtime = mt
 }
 
-// genSID는 6자리의 숫자 인증코드를 생성합니다.
-// 이 코드는 로그인 시에만 사용되며, 세션 ID와는 별개입니다.
+ // genSID는 세션 ID(sid)로 사용할 예측 불가능한 랜덤 토큰(32바이트)을 생성합니다.
+ // 생성된 토큰은 hex 문자열로 인코딩되어 반환됩니다.
 func genSID() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", err // 만약 난수 생성에 실패하면, 추측 가능한 토큰이 나가지 않도록 아예 발급을 포기합니다 - 6자리 코드생성 오류처리
+		return "", err // 난수 생성 실패 시 오류 반환
 	}
 	return hex.EncodeToString(b), nil
 }
@@ -537,8 +537,9 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.cors(w, r) {
 		return
 	}
-	// POST 요청인지 검증 - 오류=응답없음
+	// POST 요청인지 검증 - 오류=405
 	if r.Method != http.MethodPost {
+		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
 		return
 	}
 	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
@@ -643,8 +644,9 @@ func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// POST 요청인지 검증 - 오류=응답없음
+	// POST 요청인지 검증 - 오류=405
 	if r.Method != http.MethodPost {
+		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
 		return
 	}
 	var body struct {
@@ -718,9 +720,8 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp["tps"] = st.TPS // 서버의 TPS 값
 		resp["mspt"] = st.Mspt // 서버의 MSPT 값
 		resp["players"] = players // 접속한 플레이어 정보(이름, UUID, 핑)
-	}
-	// 서버가 꺼져 있으면 플레이어 정보와 TPS, MSPT 등을 -1로 반환
-	else {
+	} else {
+ 		// 서버가 꺼져 있으면 플레이어 정보와 TPS, MSPT 등을 -1로 반환
 		resp["count"] = 0
 		resp["tps"] = -1
 		resp["mspt"] = -1
@@ -927,7 +928,7 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
-		// 비정상적인 메서드 요청은 무시합니다
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -1040,7 +1041,7 @@ func main() {
 			ReadTimeout:       10 * time.Second, // 요청 본문을 읽는 시간 제한
 			WriteTimeout:      10 * time.Second, // 응답을 쓰는 시간 제한
 			IdleTimeout:       30 * time.Second, // 유휴 연결의 시간 제한
-			MaxHeaderBytes:    1 << 14, /./ 최대 헤더 크기 16KB
+			MaxHeaderBytes:    1 << 14, // 최대 헤더 크기 16KB
 		}
 		// 헬스 체크 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 		log.Printf("mc_sv-panel health listener on %s (/healthz)", hsrv.Addr)
