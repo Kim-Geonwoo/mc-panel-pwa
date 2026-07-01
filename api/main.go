@@ -42,6 +42,7 @@ type config struct {
 	authJSON     string
 	sessionsJSON string
 	chatJSON     string
+	timelineJSON string
 	revokedJSON  string
 	outboxDir    string
 	perfJSON     string
@@ -102,6 +103,7 @@ func loadConfig() config {
 		authJSON:     getenv("PANEL_AUTH_JSON", filepath.Join(br, "auth.json")),
 		sessionsJSON: getenv("PANEL_SESSIONS_JSON", filepath.Join(br, "sessions.json")),
 		chatJSON:     getenv("PANEL_CHAT_JSON", filepath.Join(br, "chat.json")),
+		timelineJSON: getenv("PANEL_TIMELINE_JSON", filepath.Join(br, "timeline.json")),
 		revokedJSON:  getenv("PANEL_REVOKED_JSON", filepath.Join(br, "web_revoked.json")),
 		outboxDir:    getenv("PANEL_OUTBOX_DIR", filepath.Join(br, "web_outbox")),
 		perfJSON:     getenv("PANEL_PERF_JSON", filepath.Join(mc, "perf.json")),
@@ -395,6 +397,18 @@ type chatMsg struct {
 	Text   string `json:"text"`
 }
 
+// timelineEntry — one user connection event (join/leave), written by the bot to
+// timeline.json. The panel pairs these into sessions client-side.
+type timelineEntry struct {
+	ID      int64  `json:"id"`
+	Ts      int64  `json:"ts"`
+	TsKst   string `json:"ts_kst"`
+	UUID    string `json:"uuid"`
+	Name    string `json:"name"`
+	Event   string `json:"event"`
+	IsFirst bool   `json:"is_first"`
+}
+
 // ------------------------------------------------------------------ 서버
 type perfHistEntry struct {
 	Ts     int64   `json:"ts"`
@@ -685,6 +699,28 @@ func (s *server) perfSampler() {
 	}
 }
 
+// handleTimeline serves the accumulated user connection events (join/leave). The
+// panel pairs them into per-user sessions and groups by KST day. "Who is online now"
+// is intentionally NOT merged here — the panel reads /api/status separately for that.
+func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	if s.cors(w, r) {
+		return
+	}
+	if _, _, ok := s.auth(w, r); !ok {
+		return
+	}
+	var events []timelineEntry
+	if s.cfg.demo {
+		events = demoTimeline()
+	} else {
+		_ = readJSON(s.cfg.timelineJSON, &events)
+	}
+	if events == nil {
+		events = []timelineEntry{}
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
 func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if s.cors(w, r) {
 		return
@@ -882,6 +918,7 @@ func main() {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/perf", s.handlePerf)
 	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/", s.static)
 
 	srv := &http.Server{

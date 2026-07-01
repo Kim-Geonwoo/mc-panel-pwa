@@ -14,6 +14,7 @@ import {
 } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
+import TimelineView from "./TimelineView";
 
 const STATUS_MS = 60000; // 접속현황 갱신: 1분
 const CHAT_MS = 2000;
@@ -31,7 +32,7 @@ function hhmm(ts: number) {
 }
 
 export default function Panel({ onLogout }: { onLogout: () => void }) {
-  const [tab, setTab] = useState<"chat" | "perf">("chat");
+  const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
   const [status, setStatus] = useState<Status | null>(null);
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const sinceRef = useRef(0);
@@ -234,7 +235,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
 
       {/* 탭 */}
       <div className="flex shrink-0 gap-1 px-4 pt-1">
-        {(["chat", "perf"] as const).map((tb) => (
+        {(["chat", "perf", "timeline"] as const).map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
@@ -243,13 +244,15 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               tab === tb ? "bg-card text-fg shadow-card" : "text-muted hover:text-fg",
             ].join(" ")}
           >
-            {tb === "chat" ? "채팅" : "성능"}
+            {tb === "chat" ? "채팅" : tb === "perf" ? "성능" : "타임라인"}
           </button>
         ))}
       </div>
 
       {tab === "perf" ? (
         <PerfView serverUp={up} onLogout={onLogout} />
+      ) : tab === "timeline" ? (
+        <TimelineView onLogout={onLogout} />
       ) : (
         <>
       {/* 채팅 피드 */}

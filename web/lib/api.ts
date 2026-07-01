@@ -176,6 +176,23 @@ export async function fetchPerf(): Promise<Perf> {
   return (await r.json()) as Perf;
 }
 
+export type TimelineEvent = {
+  id: number;
+  ts: number; // epoch ms — for relative time / session duration only
+  ts_kst: string; // "YYYY-MM-DD HH:MM:SS" — trust this for display (no tz conversion)
+  uuid: string;
+  name: string;
+  event: "join" | "leave";
+  is_first: boolean;
+};
+export type Timeline = { events: TimelineEvent[] };
+
+export async function fetchTimeline(): Promise<Timeline> {
+  const r = await authed("/api/timeline");
+  if (!r.ok) throw new Error("timeline_failed");
+  return (await r.json()) as Timeline;
+}
+
 export function avatarUrl(uuid: string, name: string): string {
   const key = uuid || name || "steve";
   return `https://mc-heads.net/avatar/${key}/64`;
