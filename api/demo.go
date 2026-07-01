@@ -51,3 +51,35 @@ func demoChat() []chatMsg {
 		{ID: now - 10000, TS: now - 10000, Source: "web", User: "Guest", Text: "웹 패널에서 보낸 메시지"},
 	}
 }
+
+// demoTimeline — sample connection events for the timeline tab in PANEL_DEMO.
+// Consistent with demoStatus (Steve, Alex are "online" → open sessions today),
+// plus a few completed sessions on earlier KST days and a first-visit badge.
+func demoTimeline() []timelineEntry {
+	kst := time.FixedZone("KST", 9*3600)
+	now := time.Now().UnixMilli()
+	const min = int64(60000)
+	const hour = 60 * min
+	const day = 24 * hour
+	const a1 = "00000000-0000-0000-0000-0000000000a1" // Steve (online)
+	const a2 = "00000000-0000-0000-0000-0000000000a2" // Alex (online)
+	const a3 = "00000000-0000-0000-0000-0000000000a3" // Notch (offline)
+	mk := func(id, ts int64, uuid, name, event string, first bool) timelineEntry {
+		return timelineEntry{
+			ID: id, Ts: ts, TsKst: time.UnixMilli(ts).In(kst).Format("2006-01-02 15:04:05"),
+			UUID: uuid, Name: name, Event: event, IsFirst: first,
+		}
+	}
+	return []timelineEntry{
+		mk(1, now-2*day-3*hour, a3, "Notch", "join", true), // 그제 — Notch 첫 방문(완료)
+		mk(2, now-2*day-1*hour, a3, "Notch", "leave", false),
+		mk(3, now-day-5*hour, a1, "Steve", "join", false), // 어제 — Steve(완료)
+		mk(4, now-day-3*hour-20*min, a1, "Steve", "leave", false),
+		mk(5, now-day-4*hour, a2, "Alex", "join", true), // 어제 — Alex 첫 방문(완료)
+		mk(6, now-day-2*hour, a2, "Alex", "leave", false),
+		mk(7, now-6*hour, a1, "Steve", "join", false), // 오늘 — Steve 완료 세션
+		mk(8, now-4*hour-12*min, a1, "Steve", "leave", false),
+		mk(9, now-68*min, a1, "Steve", "join", false), // 오늘 — Steve 진행중(online)
+		mk(10, now-23*min, a2, "Alex", "join", false), // 오늘 — Alex 진행중(online)
+	}
+}
