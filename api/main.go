@@ -1,20 +1,25 @@
-// mc_sv-panel API + 정적 파일 서버.
+// mc_sv-panel의 API 서버이자 정적 파일 서버입니다.
 //
-// 단일 Go 바이너리로 다음을 모두 수행한다:
-//   - 정적 익스포트된 Next.js 패널(web/out)을 "/"에서 서빙
-//   - /api/login, /api/logout, /api/me, /api/nickname, /api/status, /api/chat 제공
+// 이 프로그램은 하나의 Go 바이너리 안에서 두 가지 일을 함께 처리합니다.
+// 먼저 Next.js로 미리 빌드해 둔 패널 화면(web/out)을 "/" 경로에서 그대로 내보내고,
 //
-// 인증 모델(서버 측 세션, 취소 가능):
+// 그와 함께 /api/login, /api/logout, /api/me, /api/nickname, /api/status, /api/chat 같은
+// API 요청도 같은 서버에서 응답합니다.
 //
-//	POST /api/login {code} — 봇이 주기적으로 갱신하는 6자리 코드(auth.json)와 비교하고,
-//	일치하면 sessions.json에 세션을 만들어 불투명한 랜덤 id(sid)를 반환한다.
-//	클라이언트는 sid를 저장(localStorage)하고 `Authorization: Bearer <sid>`로 전송한다.
-//	매 요청마다 sid를 스토어와 대조(존재 여부, 만료, 취소)한다.
-//	관리자는 봇의 /웹유저삭제 명령이 기록하는 web_revoked.json에 sid를 올려 세션을
-//	취소할 수 있고, 그러면 다음 요청부터 401로 실패한다.
 //
-// 채팅: 봇이 유일한 허브다. chat.json을 기록하고(GET /api/chat에서 읽음),
-// web_outbox/*.json을 소비한다(POST /api/chat에서 기록). 모든 경로는 환경변수로 설정 가능하다.
+// 로그인 - 서버가 세션을 직접 관리하여, 요청을 통해서 특정 유저의 세션을 끊을 수 있습니다.
+// 유저의 세션은 서버와 유저의 브라우저 localStorage에 저장하며,
+// 2일 후에는 갱신되는 6자리 코드로 다시 로그인해야 합니다.
+// 
+//
+// 채팅은 디스코드 봇이 모든 메시지가 오가는 중심 역할을 합니다. 봇이 chat.json에 대화 내용을 써 두면
+// 웹에서는 GET /api/chat으로 그 내용을 읽고, 반대로 웹에서 보낸 메시지는 web_outbox 폴더에 쌓아 두면
+// 봇이 가져가 처리합니다(POST /api/chat). 위에서 언급한 파일 경로들은 모두 환경변수로 바꿀 수 있습니다.
+// (디스코드 봇은 아직은 공개할 계획이 없으므로, 추후 웹을 중심으로 채팅을 처리하는 방식으로 바뀔 예정입니다.)
+//
+//
+// 수정가능한 환경변수 목록
+// loadConfig() 함수 위의 주석에서 확인가능
 package main
 
 import (
@@ -89,10 +94,35 @@ func getenvBool(k string, def bool) bool {
 	return def
 }
 
-// loadConfig는 모든 경로를 환경변수에서 읽어 바이너리의 이식성을 확보한다.
-// 기본값은 저장소 상대 경로이고, 실제 배포에서는 런처(예: systemd 유닛)가 절대 경로로
-// 덮어쓴다. PANEL_BRIDGE_DIR은 동반 디스코드 봇이 JSON 파일을 기록하는 디렉터리,
-// PANEL_MC_DATA_DIR은 서버 측 KubeJS 스크립트가 status/perf를 기록하는 디렉터리다.
+// 환경 변수 설명
+// listen: 서버가 바인딩할 주소와 포트 (예: ":8080")
+
+
+// 각종 JSON 파일 위치 지정
+
+// statusJSON: 서버 상태를 기록하는 JSON 파일 경로 (예: "./data/status.json")
+// recordsJSON: 서버 기록을 저장하는 JSON 파일 경로 (예: "./data/records.json")
+// authJSON: 로그인 코드를 저장하는 JSON 파일 경로 (예: "./data/auth.json")
+// sessionsJSON: 세션 정보를 저장하는 JSON 파일 경로 (예: "./data/sessions.json")
+// chatJSON: 채팅 메시지를 저장하는 JSON 파일 경로 (예: "./data/chat.json")
+// timelineJSON: 타임라인 이벤트를 저장하는 JSON 파일 경로 (예: "./data/timeline.json")
+// revokedJSON: 취소된 세션 ID를 저장하는 JSON 파일 경로 (예: "./data/web_revoked.json")
+// outboxDir: 웹에서 보낸 메시지를 임시로 저장하는 디렉토리 경로 (예: "./data/web_outbox")
+// perfJSON: 성능 데이터를 저장하는 JSON 파일 경로 (예: "./data/perf.json")
+// perfHistJSON: 성능 기록을 저장하는 JSON 파일 경로 (예: "./data/perf_history.json")
+
+
+// staticDir: 정적 파일이 위치한 디렉토리 경로 (예: "./web/out") [Next.js로 빌드한 파일폴더]
+
+// maxPlayers: 서버에 허용되는 최대 플레이어 수 (예: 20) [패널에 표시됩니다]
+
+// freshSec: 서버 상태가 최신인지 판단하는 시간(초) (예: 21)
+
+// sessionSec: 로그인된 유저의 세션 만료 시간(초) (예: 172800, 2일)
+
+// allowOrigin: CORS 허용 도메인 (예: "https://example.com")
+
+// demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
 	mc := getenv("PANEL_MC_DATA_DIR", "./data")
@@ -134,6 +164,8 @@ type sessionStore struct {
 	revokedMtime int64
 }
 
+// newSessionStore는 세션 스토어를 초기화합니다. path는 세션 정보를 저장할 JSON 파일 경로이고,
+// revokedPath는 취소된 세션 ID를 저장할 JSON 파일 경로입니다. ttl은 세션 만료 시간(초)입니다.
 func newSessionStore(path, revokedPath string, ttl int64) *sessionStore {
 	s := &sessionStore{path: path, revokedPath: revokedPath, ttl: ttl,
 		data: map[string]*session{}, revoked: map[string]bool{}}
@@ -144,6 +176,7 @@ func newSessionStore(path, revokedPath string, ttl int64) *sessionStore {
 	return s
 }
 
+// persistLocked는 세션 정보를 sessions.json에 기록합니다. 반드시 s.mu를 잠근 상태에서 호출해야 합니다.
 func (s *sessionStore) persistLocked() {
 	tmp := s.path + ".tmp"
 	b, _ := json.MarshalIndent(s.data, "", "  ")
@@ -152,7 +185,8 @@ func (s *sessionStore) persistLocked() {
 	}
 }
 
-// refreshRevokedLocked는 web_revoked.json의 mtime이 바뀌면 다시 로드한다.
+// refreshRevokedLocked는 web_revoked.json 파일이 수정되었을 때에만 취소 목록을 다시 읽어 옵니다.
+// 파일의 수정 시각(mtime)이 이전과 같으면 동작하지 않습니다.
 func (s *sessionStore) refreshRevokedLocked() {
 	fi, err := os.Stat(s.revokedPath)
 	if err != nil {
@@ -176,14 +210,17 @@ func (s *sessionStore) refreshRevokedLocked() {
 	s.revokedMtime = mt
 }
 
+// genSID는 6자리의 숫자 인증코드를 생성합니다.
+// 이 코드는 로그인 시에만 사용되며, 세션 ID와는 별개입니다.
 func genSID() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", err // RNG 실패 시 예측 가능한 토큰을 절대 발급하지 않는다
+		return "", err // 만약 난수 생성에 실패하면, 추측 가능한 토큰이 나가지 않도록 아예 발급을 포기합니다 - 6자리 코드생성 오류처리
 	}
 	return hex.EncodeToString(b), nil
 }
 
+// create는 새로운 세션을 생성하고, 그 세션 ID를 반환합니다. 세션은 ttl 초 후에 만료됩니다.
 func (s *sessionStore) create() (string, error) {
 	sid, err := genSID()
 	if err != nil {
@@ -198,13 +235,14 @@ func (s *sessionStore) create() (string, error) {
 	return sid, nil
 }
 
-// PurgeExpired는 만료된 세션을 제거한다(클리너가 주기적으로 호출).
+// PurgeExpired는 만료된 세션들을 정리합니다. 백그라운드 정리 작업이 주기적으로 호출합니다 
 func (s *sessionStore) PurgeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.purgeLocked(time.Now().Unix())
 }
 
+// purgeLocked는 만료된 세션들을 정리합니다. 반드시 s.mu를 잠근 상태에서 호출해야 합니다.
 func (s *sessionStore) purgeLocked(now int64) {
 	changed := false
 	for sid, v := range s.data {
@@ -218,7 +256,8 @@ func (s *sessionStore) purgeLocked(now int64) {
 	}
 }
 
-// get은 sid를 검증하고 세션의 복사본을 반환한다.
+
+// get은 클라이언트가 보낸 sid가 유효한지 검증합니다. 만약 만료되었거나 취소된 세션이면 false를 반환합니다.
 func (s *sessionStore) get(sid string) (session, bool) {
 	if sid == "" {
 		return session{}, false
@@ -239,6 +278,7 @@ func (s *sessionStore) get(sid string) (session, bool) {
 	return *v, true
 }
 
+// setNickname은 로그인 후, 닉네임을 설정합니다. 중복 닉네임은 거부합니다
 func (s *sessionStore) setNickname(sid, nick string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -246,7 +286,7 @@ func (s *sessionStore) setNickname(sid, nick string) error {
 	if !ok {
 		return errors.New("no_session")
 	}
-	// 다른 활성 세션이 이미 쓰고 있는 닉네임은 거부
+	// 닉네임 중복 체크
 	now := time.Now().Unix()
 	for other, ov := range s.data {
 		if other != sid && now < ov.Exp && ov.Nickname == nick {
@@ -258,6 +298,7 @@ func (s *sessionStore) setNickname(sid, nick string) error {
 	return nil
 }
 
+// remove는 세션을 삭제합니다. 로그아웃 시에도 호출됩니다.
 func (s *sessionStore) remove(sid string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -275,6 +316,7 @@ type rateLimiter struct {
 	max    int
 }
 
+// newRateLimiter는 인증코드의 시도 횟수를 제한합니다. (IP별로 적용) 
 func newRateLimiter(windowSec int64, max int) *rateLimiter {
 	return &rateLimiter{hits: map[string][]int64{}, window: windowSec, max: max}
 }
@@ -297,7 +339,8 @@ func (rl *rateLimiter) allow(key string) bool {
 	return true
 }
 
-// sweep는 기록이 모두 만료된 키를 제거한다(맵의 무한 증가 방지).
+// sweep는 기록이 전부 만료되어 비어 버린 키를 맵에서 지웁니다.
+// 이렇게 청소해 주지 않으면 맵이 계속 커지기만 합니다.
 func (rl *rateLimiter) sweep() {
 	now := time.Now().Unix()
 	rl.mu.Lock()
@@ -318,15 +361,17 @@ func (rl *rateLimiter) sweep() {
 	}
 }
 
+
+// clientIP는 클라이언트의 IP 주소를 반환합니다. (보안 상, 로컬에서 들어오는 요청만 포워딩 헤더를 신뢰합니다)
 func clientIP(r *http.Request) string {
 	host := r.RemoteAddr
 	if c := strings.LastIndexByte(host, ':'); c >= 0 {
 		host = host[:c]
 	}
 	host = strings.Trim(host, "[]")
-	// 요청이 실제로 로컬 Cloudflare 터널(루프백의 cloudflared)에서 들어온 경우에만 포워딩
-	// 헤더를 신뢰한다. 리스너가 127.0.0.1에 바인딩되므로 직접 접속하는 클라이언트는
-	// CF-Connecting-IP / X-Forwarded-For를 위조할 방법이 없다.
+	// 포워딩 헤더(CF-Connecting-IP, X-Forwarded-For)는 요청이 실제로 로컬 Cloudflare 터널,
+	//즉 루프백에서 도는 cloudflared를 거쳐 들어왔을 때에만 믿습니다. 리스너가 127.0.0.1에만
+	// 묶여 있어서, 직접 접속하는 클라이언트는 이 헤더들을 위조해도 통하지 않습니다.
 	if host == "127.0.0.1" || host == "::1" {
 		if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
 			return ip
@@ -341,9 +386,10 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// sanitizeText는 제어 문자, 마인크래프트 섹션 기호(§, 색상/서식/난독화 코드 및 사칭에 사용),
-// 개행, 앞뒤 공백을 제거한다. 봇의 tellraw를 통해 사용자 텍스트가 게임에 도달하기 전의
-// 심층 방어다.
+// sanitizeText는 사용자가 입력한 텍스트에서 위험하거나 지저분한 문자를 걷어 냅니다.
+// 제어 문자, 마인크래프트 섹션 기호(§ — 색상·서식·난독화 코드나 다른 사람 사칭에 악용됩니다),
+// 줄바꿈, 그리고 앞뒤 공백을 없앱니다. 이 텍스트는 봇의 tellraw를 거쳐 실제 게임 화면에 표시되므로,
+// 게임에 닿기 전에 한 번 더 걸러 두는 안전장치입니다.
 func sanitizeText(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -351,9 +397,9 @@ func sanitizeText(s string) string {
 		case r == '\n' || r == '\r' || r == '\t':
 			b.WriteByte(' ')
 		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f: // C0/C1 제어 문자
-			// 제거
+			// 버리고 넘어갑니다
 		case r == 0x00a7: // § 섹션 기호
-			// 제거
+			// 버리고 넘어갑니다
 		default:
 			b.WriteRune(r)
 		}
@@ -370,11 +416,16 @@ func readJSON(path string, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// ------------------------------------------------------------------ 데이터 구조체
+
+// playr - 서버에 접속한 플레이어 정보를 나타냅니다.
 type player struct {
 	Name string  `json:"name"`
 	UUID string  `json:"uuid"`
 	Ping float64 `json:"ping"`
 }
+
+// statusFile - 서버 상태의 요약정보용 (status.json)
 type statusFile struct {
 	TS      float64  `json:"ts"`
 	Count   int      `json:"count"`
@@ -382,12 +433,17 @@ type statusFile struct {
 	Mspt    float64  `json:"mspt"`
 	Players []player `json:"players"`
 }
+
+// 
 type recordsFile struct {
 	MaxConcurrent int `json:"max_concurrent"`
 }
+// 
 type authFile struct {
 	Code string `json:"code"`
 }
+
+// 채팅 메시지 구조체 정의
 type chatMsg struct {
 	ID     int64  `json:"id"`
 	TS     int64  `json:"ts"`
@@ -397,19 +453,20 @@ type chatMsg struct {
 	Text   string `json:"text"`
 }
 
-// timelineEntry — one user connection event (join/leave), written by the bot to
-// timeline.json. The panel pairs these into sessions client-side.
+// timelineEntry는 타임라인 탭에 표시할 접속 이벤트를 나타냅니다. (join/leave)
 type timelineEntry struct {
 	ID      int64  `json:"id"`
-	Ts      int64  `json:"ts"`
-	TsKst   string `json:"ts_kst"`
+	Ts      int64  `json:"ts"` // UTC 기준 타임스탬프
+	TsKst   string `json:"ts_kst"` // KST 기준 타임스탬프 (YYYY-MM-DD HH:MM:SS)
 	UUID    string `json:"uuid"`
 	Name    string `json:"name"`
-	Event   string `json:"event"`
-	IsFirst bool   `json:"is_first"`
+	Event   string `json:"event"` // "join" 또는 "leave"
+	IsFirst bool   `json:"is_first"` // 첫 방문 여부 (true = 첫 방문, false = 재방문)
 }
 
 // ------------------------------------------------------------------ 서버
+
+// 마인크래프트 서버 성능 측정값 정의
 type perfHistEntry struct {
 	Ts     int64   `json:"ts"`
 	Tps    float64 `json:"tps"`
@@ -421,20 +478,22 @@ type perfHistEntry struct {
 
 type server struct {
 	cfg           config
-	sessions      *sessionStore
-	loginRL       *rateLimiter // IP별 로그인 시도
-	loginGlobalRL *rateLimiter // 서버 전체 로그인 상한(IP별 제한이 우회될 경우의 방어선)
-	chatRL        *rateLimiter
-	perfMu        sync.Mutex
-	perfHist      []perfHistEntry // perf.json에서 샘플링한 롤링 성능 히스토리
+	sessions      *sessionStore // 세션 스토어
+	loginRL       *rateLimiter // IP별 로그인 시도 횟수를 셉니다
+	loginGlobalRL *rateLimiter // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
+	chatRL        *rateLimiter // IP별 채팅 전송 시도 횟수를 셉니다
+	perfMu        sync.Mutex // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
+	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
 
+// writeJSON을 http 응답으로 내보내기 위한 코드
 func (s *server) writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// cors 설정
 func (s *server) cors(w http.ResponseWriter, r *http.Request) bool {
 	if s.cfg.allowOrigin == "" {
 		return false
@@ -449,6 +508,8 @@ func (s *server) cors(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+
+// 유저의 세션 검증을 위한, Authorization 헤더에서 bearer 토큰 추출
 func bearerOf(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	const p = "Bearer "
@@ -458,10 +519,11 @@ func bearerOf(r *http.Request) string {
 	return ""
 }
 
-// auth는 세션을 검증한다. 실패하면 401을 쓰고 ok=false를 반환한다.
+// bearer 토큰의 sid 값을 서버의 세션파일에서 검증하는 하는 코드
 func (s *server) auth(w http.ResponseWriter, r *http.Request) (string, session, bool) {
 	sid := bearerOf(r)
 	sess, ok := s.sessions.get(sid)
+	// 세션이 없거나 만료되었거나 취소된 경우 - 권한없음
 	if !ok {
 		s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return "", session{}, false
@@ -469,14 +531,17 @@ func (s *server) auth(w http.ResponseWriter, r *http.Request) (string, session, 
 	return sid, sess, true
 }
 
+// 로그인 요청을 처리하는 함수
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// CORS 처리 - 오류=응답없음
 	if s.cors(w, r) {
 		return
 	}
+	// POST 요청인지 검증 - 오류=응답없음
 	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
 		return
 	}
+	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
 	if !s.loginRL.allow(clientIP(r)) || !s.loginGlobalRL.allow("global") {
 		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
 		return
@@ -484,13 +549,19 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code string `json:"code"`
 	}
+	// 요청이 JSON 형식인지 검증 - 오류=응답없음
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_request"})
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 		return
 	}
 	code := strings.TrimSpace(body.Code)
+
+	// 로그인 코드 검증 (auth.json)
+
+	// 데모 모드라면 데모용 코드와 비교,
+	// 아니면 auth.json에 저장된 코드와 비교
 	if s.cfg.demo {
-		// 데모 모드에는 코드를 갱신할 봇이 없으므로 잘 알려진 데모 코드를 받아들인다.
+		// 데모 모드에서는 코드를 갱신해 줄 봇이 없으므로, 미리 정해 둔 데모용 코드를 그대로 받아들입니다.
 		if subtleNE(code, demoLoginCode) {
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
@@ -507,6 +578,8 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sid, err := s.sessions.create()
+
+	// 세션 생성에 실패하면 서버 오류로 응답
 	if err != nil {
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
@@ -514,7 +587,13 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"token": sid})
 }
 
-// subtleNE는 a != b 여부를 상수 시간으로 판정한다.
+// ------------------------------------------------------------------ API 핸들러
+
+
+// 응답속도 추정으로 로그인 코드를 알아내는 공격 방지용 코드
+
+// subtleNE는 두 문자열 a와 b가 서로 다른지를 비교합니다. 걸리는 시간이 내용에 따라 달라지지 않도록
+// 항상 일정한 시간(상수 시간)으로 처리해서, 응답 속도를 재어 코드를 알아내는 타이밍 공격을 막습니다.
 func subtleNE(a, b string) bool {
 	if len(a) != len(b) {
 		return true
@@ -526,20 +605,26 @@ func subtleNE(a, b string) bool {
 	return v != 0
 }
 
+// handleLogout - 로그아웃 처리
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// CORS 처리 - 오류=응답없음
 	if s.cors(w, r) {
 		return
 	}
+	// bearer 토큰에서 세션sid를 가져오고, 해당 sid를 세션파일에서 제거 (로그아웃은 세션을 취소합니다. 유지x)
 	if sid := bearerOf(r); sid != "" {
 		s.sessions.remove(sid)
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
+	// CORS 처리 - 오류=응답없음
 	if s.cors(w, r) {
 		return
 	}
+	// sid의 유효성 검증 - 오류=응답없음
 	_, sess, ok := s.auth(w, r)
 	if !ok {
 		return
@@ -547,51 +632,63 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": sess.Nickname})
 }
 
+// handleNickname - 닉네임 설정 처리
 func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
+	// CORS 처리 - 오류=응답없음
 	if s.cors(w, r) {
 		return
 	}
 	sid, _, ok := s.auth(w, r)
+	// sid의 유효성 검증
 	if !ok {
 		return
 	}
+	// POST 요청인지 검증 - 오류=응답없음
 	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
 		return
 	}
 	var body struct {
 		Nickname string `json:"nickname"`
 	}
+	// 요청이 JSON 형식인지 검증
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
-		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_request"})
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 		return
 	}
+	// 닉네임 길이 검증 (2~16자)
 	nick := sanitizeText(body.Nickname)
 	n := len([]rune(nick))
 	if n < 2 || n > 16 {
-		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_nickname"})
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 		return
 	}
+	// 닉네임 중복 체크 및 세션에 닉네임 저장
 	if err := s.sessions.setNickname(sid, nick); err != nil {
 		if err.Error() == "taken" {
 			s.writeJSON(w, http.StatusConflict, map[string]string{"error": "nickname_taken"})
 			return
 		}
+		// 세션이 없거나 만료되었거나 취소된 경우
 		s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": nick})
 }
 
+// handleStatus - 서버 상태를 브라우저에 반환
 func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// cors 처리
 	if s.cors(w, r) {
 		return
 	}
+	// sid의 유효성 검증(로그인 세션)
 	if _, _, ok := s.auth(w, r); !ok {
 		return
 	}
 	var st statusFile
 	var rec recordsFile
+	// 데모 모드라면 데모 데이터 반환,
+	// 아니라면 status.json과 records.json을 읽어 반환
 	if s.cfg.demo {
 		st, rec = demoStatus(), demoRecords()
 	} else {
@@ -599,25 +696,31 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		_ = readJSON(s.cfg.recordsJSON, &rec)
 	}
 
+	// 서버의 상태가 최신인지 판단 (freshSec 초 이내에 업데이트된 경우)
 	nowMs := float64(time.Now().UnixMilli())
 	serverUp := st.TS > 0 && (nowMs-st.TS) < s.cfg.freshSec*1000
 
+	// 서버 상태를 JSON으로 반환
 	resp := map[string]any{
-		"server_up":      serverUp,
-		"max":            s.cfg.maxPlayers,
-		"max_concurrent": rec.MaxConcurrent,
-		"updated_ts":     int64(st.TS),
+		"server_up":      serverUp, // 서버 온라인, 오프라인 여부
+		"max":            s.cfg.maxPlayers, // config에서 설정한 최대 플레이어 수(패널 표시전용 값)
+		"max_concurrent": rec.MaxConcurrent, // records.json에서 읽은 역대 최대 동시 접속자 수
+		"updated_ts":     int64(st.TS), // status.json에서 읽은 마지막 업데이트 시각(UTC 기준)
 	}
+	// 서버가 켜져 있으면 플레이어 정보와 TPS, MSPT 등을 반환
 	if serverUp {
 		players := st.Players
+		// 플레이어 정보가 없으면 빈 배열로 초기화
 		if players == nil {
 			players = []player{}
 		}
-		resp["count"] = st.Count
-		resp["tps"] = st.TPS
-		resp["mspt"] = st.Mspt
-		resp["players"] = players
-	} else {
+		resp["count"] = st.Count // 접속자 수
+		resp["tps"] = st.TPS // 서버의 TPS 값
+		resp["mspt"] = st.Mspt // 서버의 MSPT 값
+		resp["players"] = players // 접속한 플레이어 정보(이름, UUID, 핑)
+	}
+	// 서버가 꺼져 있으면 플레이어 정보와 TPS, MSPT 등을 -1로 반환
+	else {
 		resp["count"] = 0
 		resp["tps"] = -1
 		resp["mspt"] = -1
@@ -626,28 +729,34 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
-// handlePerf는 패널의 성능 뷰를 위해 실시간 성능 샘플(perf.json)과 롤링 히스토리
-// (perf_history.json)를 서빙한다. 둘 다 플레이어가 1명 이상 접속해 있을 때만 KubeJS가
-// 기록하며, 유휴 상태에서는 오래되거나 없으므로 tracking=false를 반환한다.
+// handlePerf - 서버 성능(perf.json)과 최근 기록을 브라우저에 반환
+// 데이터 목록 : tps, mspt, p95, count, spikes
+// 서버의 kubejs 모드에서 플레이어가 1명 이상일때만 데이터값을 제공 받습니다. 
 func (s *server) handlePerf(w http.ResponseWriter, r *http.Request) {
+	// cors 처리
 	if s.cors(w, r) {
 		return
 	}
+	// sid의 유효성 검증(로그인 세션)
 	if _, _, ok := s.auth(w, r); !ok {
 		return
 	}
 	var cur map[string]any
+	// 데모 모드라면 데모용 샘플 데이터를 가져오고,
+	// 아니라면 perf.json을 읽어 옵니다. (KubeJS가 기록한 값)
 	if s.cfg.demo {
 		cur = demoPerfCurrent()
 	} else {
 		_ = readJSON(s.cfg.perfJSON, &cur)
 	}
+	// perf.json이 존재하지 않거나 오래된 경우, tracking=false로 응답합니다.
 	tracking := false
 	if cur != nil {
 		if tsv, ok := cur["ts"].(float64); ok {
 			tracking = (float64(time.Now().UnixMilli()) - tsv) < 6000
 		}
 	}
+	// kubeJS가 기록을 시작하지 않은 경우, 데이터 없음으로 처리 (서버 문제혹은 유저가 0명일때)
 	if !tracking {
 		cur = nil
 	}
@@ -658,40 +767,52 @@ func (s *server) handlePerf(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"tracking": tracking, "current": cur, "history": hist})
 }
 
-// perfSampler는 perf.json이 신선한 동안(플레이어 접속 중) 약 1.5초마다 압축된 히스토리
-// 포인트를 추가한다. 메모리에 보관(재시작 시 초기화)되며 패널의 실시간 차트를 구동한다.
+// perfSampler - 서버 성능(perf.json)을 주기적으로 읽어, 최근 기록을 s.perfHist에 저장합니다. (1.5초 간격)
 func (s *server) perfSampler() {
+	// time.NewTicker는 코드 실행 시간과 무관하게 벽시계 기준으로 정확히 1.5초마다 발화합니다.
+	// (time.Sleep과 달리 실행 시간이 누적되지 않습니다.)
 	t := time.NewTicker(1500 * time.Millisecond)
 	defer t.Stop()
 	for range t.C {
+		// 처리가 1.5초를 초과했을 때 채널에 쌓인 틱을 버려 연속 실행을 방지합니다
+		for len(t.C) > 0 {
+			<-t.C
+		}
 		var cur map[string]any
+		// 데모 모드는 샘플 데이터를 가져오고,
+		// 아니라면 perf.json을 읽어 옵니다.
 		if s.cfg.demo {
 			cur = demoPerfCurrent()
 		} else if readJSON(s.cfg.perfJSON, &cur) != nil || cur == nil {
 			continue
 		}
+		// perf.json이 존재하지 않거나 오래된 경우, 기록을 갱신하지 않습니다.
 		tsv, _ := cur["ts"].(float64)
 		if tsv == 0 || float64(time.Now().UnixMilli())-tsv >= 6000 {
-			continue // 오래됨/유휴(플레이어 없음)
+			continue // 데이터가 오래됨 — 플레이어가 없는 유휴 상태이므로 건너뜁니다
 		}
 		e := perfHistEntry{Ts: int64(tsv)}
 		e.Tps, _ = cur["tps"].(float64)
 		e.Mspt, _ = cur["mspt"].(float64)
+		// P95값이 0이상이면 그대로 사용, 0 미만 소수라면 period_p95 사용
 		if p95, _ := cur["mspt_p95"].(float64); p95 >= 0 {
 			e.P95 = p95
 		} else {
 			e.P95, _ = cur["period_p95"].(float64)
 		}
+		// count와 spikes_100은 float64로 읽어온 뒤 int로 변환합니다.
 		if v, ok := cur["count"].(float64); ok {
 			e.Count = int(v)
 		}
+		// spikes_100은 100ms 이상 걸린 스파이크 횟수입니다. (TPS=10 이하로 떨어진 횟수)
 		if v, ok := cur["spikes_100"].(float64); ok {
 			e.Spikes = int(v)
 		}
+		// 최근 기록에 추가합니다. 단, 같은 타임스탬프는 중복 저장하지 않습니다.
 		s.perfMu.Lock()
 		if n := len(s.perfHist); n == 0 || s.perfHist[n-1].Ts != e.Ts {
 			s.perfHist = append(s.perfHist, e)
-			if len(s.perfHist) > 480 { // 1.5초 간격으로 약 12분
+			if len(s.perfHist) > 480 { // 1.5초 간격으로 대략 12분 분량입니다
 				s.perfHist = s.perfHist[len(s.perfHist)-480:]
 			}
 		}
@@ -699,36 +820,45 @@ func (s *server) perfSampler() {
 	}
 }
 
-// handleTimeline serves the accumulated user connection events (join/leave). The
-// panel pairs them into per-user sessions and groups by KST day. "Who is online now"
-// is intentionally NOT merged here — the panel reads /api/status separately for that.
+
+// handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환
 func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	// cors 처리
 	if s.cors(w, r) {
 		return
 	}
+	// sid의 유효성 검증(로그인 세션)
 	if _, _, ok := s.auth(w, r); !ok {
 		return
 	}
+	// 데모 모드에서는 샘플 데이터 값을 불러오고,
+  // 아니라면 timeline.json을 읽어 옵니다.
 	var events []timelineEntry
 	if s.cfg.demo {
 		events = demoTimeline()
 	} else {
 		_ = readJSON(s.cfg.timelineJSON, &events)
 	}
+	// timeline.json이 존재하지 않거나 비어 있으면 빈 배열로 초기화
 	if events == nil {
 		events = []timelineEntry{}
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
+
+// handleChat - 채팅 메시지를 브라우저에 반환하거나, 새 메시지를 받아 outbox에 저장
 func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
+	// cors 처리
 	if s.cors(w, r) {
 		return
 	}
+	// sid의 유효성 검증(로그인 세션)
 	sid, sess, ok := s.auth(w, r)
 	if !ok {
 		return
 	}
+	// GET 요청이면 since 이후의 메시지를 반환, POST 요청이면 새 메시지를 받아 outbox에 저장
 	switch r.Method {
 	case http.MethodGet:
 		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
@@ -739,43 +869,57 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 			_ = readJSON(s.cfg.chatJSON, &all)
 		}
 		out := make([]chatMsg, 0, len(all))
+		// since 이후의 메시지만 필터링하고, 마지막 메시지 ID를 계산합니다.
 		var last int64 = since
 		for _, m := range all {
+			// since 이후의 메시지만 필터링
 			if m.ID > since {
 				out = append(out, m)
 			}
+			// 마지막 메시지 ID 계산
 			if m.ID > last {
 				last = m.ID
 			}
 		}
+		// 메시지 ID 기준으로 오름차순 정렬
 		sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 		s.writeJSON(w, http.StatusOK, map[string]any{"messages": out, "last_id": last})
+	// POST 요청이면 새 메시지를 받아 outbox에 저장
 	case http.MethodPost:
+		// 닉네임이 없는 세션은 메시지를 보낼 수 없습니다. (닉네임 설정 후에만 채팅 가능)
 		if sess.Nickname == "" {
 			s.writeJSON(w, http.StatusConflict, map[string]string{"error": "no_nickname"})
 			return
 		}
+		// IP별 채팅 전송 시도 횟수 제한 (하단의 rateLimiter 구조체에서 config 할수있음)
 		if !s.chatRL.allow(sid) {
 			s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "slow_down"})
 			return
 		}
+		// 요청이 JSON 형식인지 검증
 		var body struct {
 			Text string `json:"text"`
 		}
+		// 요청 본문이 4KB를 초과하면 오류로 처리합니다.
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
-			s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_request"})
+			s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 			return
 		}
+		// 채팅 메시지로 사용할 수 없는 문자를 제거하여 코드주입 공격을 방지합니다. +채팅의 길이를 256자로 제한합니다.
 		text := sanitizeText(body.Text)
 		if text == "" {
-			s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty"})
+			s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 			return
 		}
+		// 채팅 메시지 길이 제한 (256자)
 		if len([]rune(text)) > 256 {
 			text = string([]rune(text)[:256])
 		}
-		// 데모 모드에는 아웃박스를 소비할 봇이 없으므로 받아들이고 버린다.
+
+		// 데모 모드검증 후, 데모모드에서는 채팅을 전송해도 저장하지 않습니다.
+		// 실제 서버에서는 outbox 디렉토리에 메시지를 저장합니다. (봇이 outbox를 읽어 실제 서버에 메시지를 전송. 해당방법은 수정될 예정입니다. [봇을 중심으로 한 구조에서 웹 서버를 중심으로 한 구조로 변경예정])
 		if !s.cfg.demo {
+			// 전송 실패 처리
 			if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
 				s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
 				return
@@ -783,25 +927,30 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
+		// 비정상적인 메서드 요청은 무시합니다
 	}
 }
 
+// enqueueOutbox - outbox 디렉토리에 새 채팅 메시지를 저장합니다. (디텍토리의 데이터를 봇이 읽어 마인크래프트 서버에 전송)
 func (s *server) enqueueOutbox(nick, text string) error {
+	// outbox 디렉토리가 없으면 생성합니다. (권한 0700)
 	if err := os.MkdirAll(s.cfg.outboxDir, 0o700); err != nil {
 		return err
 	}
-	// 봇이 죽었거나 지연되면 부하를 떨궈 inode/디스크 고갈을 막는다
+	// 봇이 멈췄거나 처리가 밀리면 요청을 더 받지 않고 떨궈서, inode나 디스크가 바닥나는 것을 막습니다
 	if entries, err := os.ReadDir(s.cfg.outboxDir); err == nil && len(entries) > 500 {
+		// backlog에 에러 메시지 기록
 		return errors.New("backlog")
 	}
+	// 메시지 파일 이름은 타임스탬프와 랜덤 6바이트를 조합하여 생성합니다. (예: 1672531200000-abcdef123456.json)
 	now := time.Now()
 	rb := make([]byte, 6)
 	if _, err := rand.Read(rb); err != nil {
 		return err
 	}
 	name := fmt.Sprintf("%013d-%s.json", now.UnixMilli(), hex.EncodeToString(rb))
-	// 세션 id는 일부러 디스크에 기록하지 않는다(봇은 닉네임만 필요하다)
+
+	// 마인크래프트 서버에 메시지를 전송하기 위해서, nick, text, ts를 json으로 저장하여 outbox 디렉토리에 기록합니다. (권한 0600)
 	payload, _ := json.Marshal(map[string]any{
 		"nickname": nick, "text": text, "ts": now.UnixMilli(),
 	})
@@ -810,10 +959,10 @@ func (s *server) enqueueOutbox(nick, text string) error {
 	if err := os.WriteFile(tmp, payload, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, final) // 원자적 게시 — 봇이 미완성 파일을 읽지 않도록
+	return os.Rename(tmp, final) // 이름을 한 번에 바꿔 원자적으로 공개합니다 — 봇이 쓰다 만 파일을 읽지 않도록
 }
 
-// static은 익스포트된 Next.js 사이트를 서빙하며 SPA 방식으로 index.html로 폴백한다.
+// static - 정적 파일을 제공하는 핸들러입니다. (사이트 호스팅) (Next.js 빌드 결과물)
 func (s *server) static(w http.ResponseWriter, r *http.Request) {
 	clean := filepath.Clean(r.URL.Path)
 	if strings.Contains(clean, "..") {
@@ -821,6 +970,7 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := filepath.Join(s.cfg.staticDir, clean)
+	
 	if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
 		if strings.HasSuffix(clean, ".webmanifest") {
 			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
@@ -842,7 +992,7 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, idx)
 }
 
-// securityHeaders는 mux를 감싸 모든 응답에 보안 강화 헤더를 설정한다.
+// securityHeaders - 보안 헤더를 설정하는 미들웨어입니다. (XSS, Clickjacking, Content Sniffing 방지)
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -850,32 +1000,32 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
-		// Next.js 정적 익스포트는 작은 인라인 부트스트랩/테마 스크립트와 인라인 스타일을
-		// 쓰므로 script/style에 'unsafe-inline'이 필요하다. 나머지는 모두 잠근다.
+		// Next.js 정적 빌드 결과물은 작은 인라인 부트스트랩·테마 스크립트와 인라인 스타일을 쓰기 때문에,
+		// script와 style에는 'unsafe-inline'을 허용해야 합니다. 그 밖의 출처는 모두 막아 둡니다.
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' https://mc-heads.net data:; "+
+			"default-src 'self'; img-src 'self' https://mc-heads.net data:; "+ // mc-heads.net는 플레이어 스킨·두상 이미지를 가져오는 곳입니다. data:는 favicon.ico를 위해 허용합니다.
 				"style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "+
 				"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
 
+// ------------------------------------------------------------------ main
 func main() {
 	cfg := loadConfig()
 	s := &server{
 		cfg:           cfg,
 		sessions:      newSessionStore(cfg.sessionsJSON, cfg.revokedJSON, cfg.sessionSec),
-		loginRL:       newRateLimiter(600, 10),  // IP당 10분에 로그인 10회
-		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체 10분에 로그인 120회
-		chatRL:        newRateLimiter(5, 3),     // 세션당 5초에 메시지 3개
+		loginRL:       newRateLimiter(600, 10),  // IP 하나당 600초(10분)에 로그인 10번까지
+		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체로는 600초(10분)에 로그인 120번까지
+		chatRL:        newRateLimiter(5, 3),     // 세션 하나당 5초에 메시지 3개까지
 	}
 
-	go s.perfSampler() // 패널 차트용 실시간 성능 히스토리
+	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다
 
-	// 외부 릴레이 모니터링(frp 경유 UptimeRobot)용 헬스 리스너.
-	// 전용 포트의 루프백에 바인딩되고 frpc 터널(VPS -> frps -> frpc -> 여기)을 통해서만
-	// 노출된다. 따라서 HTTP 200 성공은 릴레이 체인 전체가 살아있음을 증명한다. /healthz만
-	// 서빙하며 인증도 민감 데이터도 없다 — 패널 API 자체는 cfg.listen에서 비노출 상태로 유지된다.
+	// ----------------------------------------------------------------- 헬스 체크 리스너
+	// /healthz 경로에 GET 요청을 보내면 200 OK를 반환하는 헬스 체크용 리스너를 별도로 띄웁니다.
+	// uptimerobot 사용중.
 	go func() {
 		hmux := http.NewServeMux()
 		hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -886,30 +1036,32 @@ func main() {
 		hsrv := &http.Server{
 			Addr:              getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099"),
 			Handler:           hmux,
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       10 * time.Second,
-			WriteTimeout:      10 * time.Second,
-			IdleTimeout:       30 * time.Second,
-			MaxHeaderBytes:    1 << 14,
+			ReadHeaderTimeout: 5 * time.Second, // 요청 헤더를 읽는 시간 제한
+			ReadTimeout:       10 * time.Second, // 요청 본문을 읽는 시간 제한
+			WriteTimeout:      10 * time.Second, // 응답을 쓰는 시간 제한
+			IdleTimeout:       30 * time.Second, // 유휴 연결의 시간 제한
+			MaxHeaderBytes:    1 << 14, /./ 최대 헤더 크기 16KB
 		}
+		// 헬스 체크 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 		log.Printf("mc_sv-panel health listener on %s (/healthz)", hsrv.Addr)
 		if err := hsrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("health listener stopped: %v", err)
 		}
 	}()
 
-	// 백그라운드 클리너: 만료 세션 제거 및 오래된 레이트 리밋 키 정리
+	// 백그라운드 정리 작업입니다. 만료된 세션을 지우고, 오래된 레이트 리밋 기록도 함께 청소합니다
 	go func() {
-		t := time.NewTicker(5 * time.Minute)
+		t := time.NewTicker(5 * time.Minute) // 5분마다 정리 작업
 		defer t.Stop()
 		for range t.C {
-			s.sessions.PurgeExpired()
-			s.loginRL.sweep()
-			s.loginGlobalRL.sweep()
-			s.chatRL.sweep()
+			s.sessions.PurgeExpired() // 만료된 세션 제거
+			s.loginRL.sweep() // 오래된 레이트 리밋 기록 제거
+			s.loginGlobalRL.sweep() // 오래된 레이트 리밋 기록 제거
+			s.chatRL.sweep() // 오래된 레이트 리밋 기록 제거
 		}
 	}()
 
+	// ----------------------------------------------------------------- 메인 리스너 (경로 등록)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
@@ -921,18 +1073,21 @@ func main() {
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/", s.static)
 
+	// ----------------------------------------------------------------- 서버 시작
 	srv := &http.Server{
-		Addr:              cfg.listen,
-		Handler:           securityHeaders(mux),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       20 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 16,
+		Addr:              cfg.listen, // 서버가 바인딩할 주소와 포트
+		Handler:           securityHeaders(mux), // 보안 헤더를 설정하는 미들웨어를 적용합니다
+		ReadHeaderTimeout: 10 * time.Second, // 요청 헤더를 읽는 시간 제한
+		ReadTimeout:       20 * time.Second, // 요청 본문을 읽는 시간 제한
+		WriteTimeout:      30 * time.Second, // 응답을 쓰는 시간 제한
+		IdleTimeout:       60 * time.Second, // 유휴 연결의 시간 제한
+		MaxHeaderBytes:    1 << 16, // 최대 헤더 크기 64KB
 	}
+	// 데모 모드에서는 브리지 파일을 무시하고 샘플 데이터를 제공합니다. (로그인 코드 demoLoginCode)
 	if cfg.demo {
 		log.Printf("mc_sv-panel DEMO MODE — bridge files ignored, sample data served (login code %q)", demoLoginCode)
 	}
+	// 메인 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 	log.Printf("mc_sv-panel listening on %s (static=%s)", cfg.listen, cfg.staticDir)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)

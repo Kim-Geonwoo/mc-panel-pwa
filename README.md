@@ -129,6 +129,44 @@ build.sh  양쪽 빌드
 .github/  CI + 보안 워크플로, 템플릿, 정책
 ```
 
+## 패치 예정
+
+> 아래 변경사항은 현재 개발 중이며, 별도 세션에서 디스코드 봇과 함께 작업할 예정입니다.
+
+### 1. 채팅 아키텍처 — 봇 중심 → 웹 중심 전환
+
+현재는 디스코드 봇이 모든 채팅 메시지의 허브 역할을 합니다. 봇이 없으면 웹에서 보낸 메시지가 게임에 전달되지 않습니다.
+
+**변경 후:** 웹 API가 채팅의 중심이 되고, 봇은 디스코드 ↔ 게임 브리지 역할만 담당합니다. 봇이 없는 환경에서도 웹 채팅이 독립적으로 동작합니다.
+
+| | 현재 | 변경 후 |
+| --- | --- | --- |
+| 웹 → 게임 | 웹 → `web_outbox/` → 봇 → 게임 | 웹 → API → 게임 (직접) |
+| 허브 | 디스코드 봇 | Go API 서버 |
+| 봇 없을 때 | 웹 메시지 전달 불가 | 웹 채팅 독립 동작 |
+
+### 2. 채팅 저장소 — JSON 파일 → SQLite 전환
+
+현재 `chat.json`을 통째로 읽는 방식은 메시지가 쌓일수록 성능이 선형으로 나빠집니다.
+
+**변경 후:** SQLite로 전환하여 `since` 조회를 인덱스로 처리합니다. 외부 의존성 없이 Go 표준 스택 유지.
+
+```sql
+-- 예정 스키마
+CREATE TABLE messages (
+    id      INTEGER PRIMARY KEY,
+    ts      INTEGER NOT NULL,
+    source  TEXT NOT NULL,  -- 'game' | 'discord' | 'web'
+    uuid    TEXT,
+    user    TEXT NOT NULL,
+    text    TEXT NOT NULL
+);
+CREATE INDEX idx_messages_ts ON messages(ts);
+```
+
+- `GET /api/chat?since=<ts>` → `SELECT ... WHERE ts > ?` (전체 파일 파싱 불필요)
+- Go: `modernc.org/sqlite` (CGO 불필요) 또는 표준 `database/sql` + 드라이버
+
 ## 라이선스
 
 [MIT](LICENSE)
