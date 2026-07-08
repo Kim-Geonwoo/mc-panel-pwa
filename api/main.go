@@ -576,6 +576,8 @@ type server struct {
 	vapid         vapidKeys       // 웹 푸시 VAPID 키 (데모 모드·로드 실패 시 빈 값 → 푸시 비활성)
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
+	pushMu        sync.Mutex      // 접속 푸시 쿨다운(lastJoinPush) 동시 접근을 막습니다
+	lastJoinPush  int64           // 마지막 접속 푸시를 보낸 시각(Unix) — 재접속 도배 방지 30초 쿨다운
 }
 
 // writeJSON을 http 응답으로 내보내기 위한 코드
@@ -1160,7 +1162,8 @@ func main() {
 			s.vapid = k
 		}
 		go s.runImporter(stopImporter)
-		go s.runCodeRotator(stopImporter) // 로그인 코드 생성·로테이션 (auth.json의 단일 작성자)
+		go s.runCodeRotator(stopImporter)   // 로그인 코드 생성·로테이션 (auth.json의 단일 작성자)
+		go s.runStatusWatcher(stopImporter) // 서버 다운/복구 전이를 감시해 웹 푸시로 알립니다
 	}
 
 	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다

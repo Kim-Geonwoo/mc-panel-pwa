@@ -3,6 +3,9 @@ package main
 // 웹 푸시: VAPID 키 자동 생성·재사용과 구독 저장·정리를 고정합니다.
 
 import (
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -70,5 +73,61 @@ func TestPushSubscribeAPI(t *testing.T) {
 	}
 	if subs, _ := s.store.pushSubs(); len(subs) != 0 {
 		t.Fatalf("sub not removed: %+v", subs)
+	}
+}
+
+func TestSendPushPrunesGone(t *testing.T) {
+	s, dir := newTestServer(t)
+	k, _ := loadOrCreateVAPID(filepath.Join(dir, "vapid.json"))
+	s.vapid = k
+	// 410 Gone을 돌려주는 가짜 푸시 서비스 — 해당 구독은 삭제되어야 한다.
+	// ⚠️ webpush-go는 전송 전에 p256dh/auth로 페이로드를 암호화하므로 키가 유효해야
+	// HTTP 단계(410 프루닝 분기)까지 도달한다 — 실제 P-256 키를 생성해 쓴다.
+	gone := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+	}))
+	defer gone.Close()
+	priv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p256dh := base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes())
+	ab := make([]byte, 16)
+	if _, err := rand.Read(ab); err != nil {
+		t.Fatal(err)
+	}
+	auth := base64.RawURLEncoding.EncodeToString(ab)
+	if err := s.store.upsertPushSub(gone.URL+"/sub1", p256dh, auth); err != nil {
+		t.Fatal(err)
+	}
+	s.sendPushAllSync("제목", "본문") // 테스트용 동기 버전
+	if subs, _ := s.store.pushSubs(); len(subs) != 0 {
+		t.Fatalf("gone sub not pruned: %+v", subs)
+	}
+}
+
+func TestStatusEdgeDetect(t *testing.T) {
+	// 감시기의 에지 판정 로직만 순수 함수로 검증
+	w := &statusEdge{}
+	if ev := w.feed(false); ev != "" {
+		t.Fatalf("initial down should not fire: %q", ev)
+	}
+	if ev := w.feed(true); ev != "" { // down→up 첫 전이는 부팅 — 알리지 않음(초기 상태 미확정)
+		t.Fatalf("first up should not fire: %q", ev)
+	}
+	if ev := w.feed(true); ev != "" {
+		t.Fatalf("steady up: %q", ev)
+	}
+	if ev := w.feed(false); ev != "" { // 1샘플 다운은 디바운스
+		t.Fatalf("single down sample fired: %q", ev)
+	}
+	if ev := w.feed(false); ev != "down" { // 2연속 다운 → 발화
+		t.Fatalf("want down, got %q", ev)
+	}
+	if ev := w.feed(true); ev != "" { // 1샘플 업 디바운스
+		t.Fatalf("single up sample fired: %q", ev)
+	}
+	if ev := w.feed(true); ev != "up" {
+		t.Fatalf("want up, got %q", ev)
 	}
 }
