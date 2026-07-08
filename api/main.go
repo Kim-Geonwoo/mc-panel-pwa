@@ -905,14 +905,14 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 			text = string([]rune(text)[:256])
 		}
 
-		// 데모 모드검증 후, 데모모드에서는 채팅을 전송해도 저장하지 않습니다.
+		// 데모 모드에서는 in-memory 데모 스토어에 바로 반영해 보낸 메시지가 피드에 나타나게 합니다.
 		// 실제 서버에서는 outbox 디렉토리에 메시지를 저장합니다. (봇이 outbox를 읽어 실제 서버에 메시지를 전송. 해당방법은 수정될 예정입니다. [봇을 중심으로 한 구조에서 웹 서버를 중심으로 한 구조로 변경예정])
-		if !s.cfg.demo {
+		if s.cfg.demo {
+			demoChatAppend(sess.Nickname, text)
+		} else if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
 			// 전송 실패 처리
-			if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
-				s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
-				return
-			}
+			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
+			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:

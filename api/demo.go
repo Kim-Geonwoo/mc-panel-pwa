@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // PANEL_DEMO=true 환경변수를 설정하면 디스코드 봇이나 게임 서버 없이도 패널을 체험할 수 있습니다.
 // 실제 서버 파일 대신 아래 함수들이 반환하는 샘플 데이터를 사용하므로,
@@ -30,6 +33,8 @@ func demoRecords() recordsFile {
 	return recordsFile{MaxConcurrent: 7}
 }
 
+// demoPerfCurrent는 web/lib/api.ts의 PerfCurrent 타입과 필드가 1:1로 맞아야 합니다.
+// 필드가 빠지면 성능 탭이 undefined.toFixed()로 크래시합니다.
 func demoPerfCurrent() map[string]any {
 	now := float64(time.Now().UnixMilli())
 	return map[string]any{
@@ -37,21 +42,71 @@ func demoPerfCurrent() map[string]any {
 		"tps":        20.0,
 		"mspt":       8.4,
 		"mspt_p95":   14.2,
-		"count":      2.0,
+		"mspt_p99":   18.9,
+		"mspt_max":   31.4,
+		"period_p95": 14.2,
+		"period_max": 42.0,
+		"spikes_50":  1.0,
 		"spikes_100": 0.0,
+		"count":      2.0,
+		"players": []player{
+			{Name: "Steve", UUID: "00000000-0000-0000-0000-0000000000a1", Ping: 32},
+			{Name: "Alex", UUID: "00000000-0000-0000-0000-0000000000a2", Ping: 47},
+		},
+		"dims": []map[string]any{
+			{"name": "minecraft:overworld", "chunks": 289.0, "entities": 142.0},
+			{"name": "minecraft:the_nether", "chunks": 25.0, "entities": 8.0},
+			{"name": "minecraft:the_end", "chunks": 0.0, "entities": 0.0},
+		},
 	}
 }
 
-// 채팅 샘플 데이터
-func demoChat() []chatMsg {
+// 데모 채팅은 첫 요청 시각에 시드를 한 번만 생성해 in-memory로 유지합니다.
+// 호출마다 time.Now() 기준으로 ID를 재생성하면 폴링 커서(since=last_id)보다 큰 ID가
+// 계속 만들어져 같은 메시지가 2초마다 반복 전달되므로, ID/TS를 고정해야 합니다.
+var (
+	demoChatOnce sync.Once
+	demoChatMu   sync.Mutex
+	demoChatMsgs []chatMsg
+)
+
+func demoChatSeed() {
 	now := time.Now().UnixMilli()
-	return []chatMsg{
-		{ID: now - 60000, TS: now - 60000, Source: "game", User: "Steve", Text: "데모 채팅입니다 — 게임에서 보낸 메시지"},
-		{ID: now - 30000, TS: now - 30000, Source: "discord", User: "Alex", Text: "Hello from Discord!"},
-		{ID: now - 10000, TS: now - 10000, Source: "web", User: "Guest", Text: "웹 패널에서 보낸 메시지"},
-		{ID: now - 5000, TS: now - 5000, Source: "game", User: "Steve", Text: "게임에서 보낸 두 번째 메시지"},
-		{ID: now - 2000, TS: now - 2000, Source: "discord", User: "Alex", Text: "Discord에서 보낸 두 번째 메시지"},
-		{ID: now - 1000, TS: now - 1000, Source: "web", User: "Notch", Text: "오프라인 상태에서 웹 패널에서 보낸 메시지"},
+	mk := func(off int64, source, user, text string) chatMsg {
+		return chatMsg{ID: now - off, TS: now - off, Source: source, User: user, Text: text}
+	}
+	demoChatMsgs = []chatMsg{
+		mk(60000, "game", "Steve", "데모 채팅입니다 — 게임에서 보낸 메시지"),
+		mk(30000, "discord", "Alex", "Hello from Discord!"),
+		mk(10000, "web", "Guest", "웹 패널에서 보낸 메시지"),
+		mk(5000, "game", "Steve", "게임에서 보낸 두 번째 메시지"),
+		mk(2000, "discord", "Alex", "Discord에서 보낸 두 번째 메시지"),
+		mk(1000, "web", "Notch", "오프라인 상태에서 웹 패널에서 보낸 메시지"),
+	}
+}
+
+// demoChat은 데모 채팅 메시지의 복사본을 반환합니다.
+func demoChat() []chatMsg {
+	demoChatOnce.Do(demoChatSeed)
+	demoChatMu.Lock()
+	defer demoChatMu.Unlock()
+	out := make([]chatMsg, len(demoChatMsgs))
+	copy(out, demoChatMsgs)
+	return out
+}
+
+// demoChatAppend는 데모 모드에서 웹으로 보낸 메시지를 스토어에 추가해 피드에 바로 반영합니다.
+func demoChatAppend(user, text string) {
+	demoChatOnce.Do(demoChatSeed)
+	demoChatMu.Lock()
+	defer demoChatMu.Unlock()
+	id := time.Now().UnixMilli()
+	if n := len(demoChatMsgs); n > 0 && id <= demoChatMsgs[n-1].ID {
+		id = demoChatMsgs[n-1].ID + 1 // 같은 ms에 연속 전송돼도 ID는 단조 증가해야 커서가 어긋나지 않음
+	}
+	demoChatMsgs = append(demoChatMsgs, chatMsg{ID: id, TS: id, Source: "web", User: user, Text: text})
+	if len(demoChatMsgs) > 300 {
+		demoChatMsgs = demoChatMsgs[len(demoChatMsgs)-300:]
 	}
 }
 
