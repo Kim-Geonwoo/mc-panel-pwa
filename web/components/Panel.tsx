@@ -70,6 +70,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [sending, setSending] = useState(false);
   const [chatErr, setChatErr] = useState<string | null>(null);
   const [connLost, setConnLost] = useState(false);
+  const [chatLoaded, setChatLoaded] = useState(false); // 첫 채팅 응답 도착 여부(스켈레톤 해제)
   const [tpsOpen, setTpsOpen] = useState(false);
   const [playersOpen, setPlayersOpen] = useState(false);
   const [profile, setProfile] = useState<Player | null>(null);
@@ -222,9 +223,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           }
         }
         if (alive) setConnLost(false);
+        if (alive) setChatLoaded(true); // 첫 응답 도착 — 스켈레톤 해제
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
         if (alive) setConnLost(true); // 네트워크 단절 등 — 배너 표시, 폴링은 계속 재시도
+        if (alive) setChatLoaded(true); // 실패해도 스켈레톤 무한 방지
       }
       if (alive) t = setTimeout(tick, CHAT_MS);
     };
@@ -459,7 +462,21 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           <div className="py-1 text-center text-[11px] text-muted">이전 메시지 불러오는 중…</div>
         )}
         {msgs.length === 0 && localMsgs.length === 0 ? (
-          <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
+          !chatLoaded ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <div className="h-8 w-8 shrink-0 rounded bg-line motion-safe:animate-pulse" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-3 w-24 rounded bg-line motion-safe:animate-pulse" />
+                    <div className={["h-3 rounded bg-line motion-safe:animate-pulse", i % 2 ? "w-40" : "w-56"].join(" ")} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
+          )
         ) : (
           msgs.map((m, i) => {
             const meta = SRC[m.source] ?? SRC.web;
