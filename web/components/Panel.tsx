@@ -16,8 +16,11 @@ import {
 } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
+import ProfileSheet from "./ProfileSheet";
 import Sparkline from "./Sparkline";
 import TimelineView from "./TimelineView";
+
+type Player = Status["players"][number];
 
 const STATUS_MS = 60000; // 접속현황 갱신: 1분
 const CHAT_MS = 2000;
@@ -60,6 +63,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [connLost, setConnLost] = useState(false);
   const [tpsOpen, setTpsOpen] = useState(false);
   const [playersOpen, setPlayersOpen] = useState(false);
+  const [profile, setProfile] = useState<Player | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const firstRef = useRef(true);
@@ -350,14 +354,19 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                 <div className="mt-3 max-h-40 space-y-1 overflow-y-auto border-t border-line pt-3">
                   {players.length ? (
                     players.map((p) => (
-                      <div key={p.uuid || p.name} className="flex items-center gap-2.5">
+                      <button
+                        key={p.uuid || p.name}
+                        onClick={() => setProfile(p)}
+                        aria-label={`${p.name} 프로필 보기`}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-card2"
+                      >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={avatarUrl(p.uuid, p.name)} alt="" width={24} height={24} className="rounded" />
                         <span className="text-sm">{p.name}</span>
                         <span className="ml-auto text-xs tabular-nums text-muted">
                           {p.ping >= 0 ? `${p.ping}ms` : "—"}
                         </span>
-                      </div>
+                      </button>
                     ))
                   ) : (
                     <div className="text-sm text-muted">아무도 접속해 있지 않습니다</div>
@@ -523,6 +532,19 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         </div>
       </div>
       </div>
+
+      {/* 플레이어 프로필 바텀시트 */}
+      <AnimatePresence>
+        {profile && (
+          <ProfileSheet
+            uuid={profile.uuid}
+            name={profile.name}
+            ping={profile.ping}
+            onClose={() => setProfile(null)}
+            onLogout={onLogout}
+          />
+        )}
+      </AnimatePresence>
 
       {/* TPS 설명 모달 */}
       <AnimatePresence>
