@@ -12,6 +12,8 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
 	"strconv"
 
 	_ "modernc.org/sqlite"
@@ -67,6 +69,14 @@ CREATE TABLE IF NOT EXISTS meta (
 		_ = db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
+	// 채팅 내용이 담기므로 DB 파일을 0600으로 — 봇의 런타임 파일 정책과 동일.
+	// (database/sql이 만드는 기본 권한은 0644라 다른 로컬 계정이 읽을 수 있음.
+	// 스키마 실행 후에 조정해야 WAL 부속 파일까지 존재함)
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil && !os.IsNotExist(err) {
+			log.Printf("db chmod failed (%s%s): %v", path, suffix, err)
+		}
+	}
 	return &store{db: db}, nil
 }
 
@@ -88,11 +98,23 @@ func (st *store) setMetaInt(key string, v int64) error {
 	return err
 }
 
-// insertChat은 봇이 부여한 id를 보존한 채 메시지를 저장합니다. 같은 id는 무시합니다.
+// insertChat은 id를 지정해 메시지를 저장합니다. 같은 id는 무시합니다. (테스트·특수 상황용)
 func (st *store) insertChat(m chatMsg) error {
 	_, err := st.db.Exec(`INSERT OR IGNORE INTO messages(id, ts, source, uuid, user, text)
 		VALUES(?, ?, ?, ?, ?, ?)`, m.ID, m.TS, m.Source, m.UUID, m.User, m.Text)
 	return err
+}
+
+// insertChatAuto는 DB가 id를 부여해 메시지를 저장하고 새 id를 돌려줍니다.
+// 웹 중심 전환 이후 id 권위는 DB 하나입니다 — 봇 파일 id와 API 직접 저장이
+// 섞여도 충돌하지 않습니다.
+func (st *store) insertChatAuto(ts int64, source, uuid, user, text string) (int64, error) {
+	res, err := st.db.Exec(`INSERT INTO messages(ts, source, uuid, user, text)
+		VALUES(?, ?, ?, ?, ?)`, ts, source, uuid, user, text)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 // chatSince는 id > since인 메시지 중 최신 limit개를 오름차순으로 돌려줍니다.
@@ -137,6 +159,20 @@ func (st *store) insertTimeline(e timelineEntry) error {
 	_, err := st.db.Exec(`INSERT OR IGNORE INTO timeline(id, ts, ts_kst, uuid, name, event, is_first)
 		VALUES(?, ?, ?, ?, ?, ?, ?)`, e.ID, e.Ts, e.TsKst, e.UUID, e.Name, e.Event, first)
 	return err
+}
+
+// insertTimelineAuto는 DB가 id를 부여해 접속 이벤트를 저장하고 새 id를 돌려줍니다.
+func (st *store) insertTimelineAuto(ts int64, tsKst, uuid, name, event string, isFirst bool) (int64, error) {
+	first := 0
+	if isFirst {
+		first = 1
+	}
+	res, err := st.db.Exec(`INSERT INTO timeline(ts, ts_kst, uuid, name, event, is_first)
+		VALUES(?, ?, ?, ?, ?, ?)`, ts, tsKst, uuid, name, event, first)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 // timelineEvents는 전체 이벤트를 id 오름차순으로 돌려줍니다. 크기는 retention 정리가 관리합니다.

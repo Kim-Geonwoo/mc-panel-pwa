@@ -140,17 +140,21 @@ build.sh  build both halves
 
 > The following changes are in progress and will be implemented in a separate session alongside the Discord bot.
 
-### 1. Chat architecture — bot-centric → web-centric
+### 1. Chat architecture — bot-centric → web-centric ✅ (done)
 
-Currently the Discord bot is the sole hub for all chat messages. Without the bot, messages sent from the web cannot reach the game.
+Previously the Discord bot was the hub for all chat, and even login codes and session revocation were bot artifacts — without the bot the web panel was effectively dead. The Go API is now the hub.
 
-**After the change:** The Go API becomes the chat hub; the bot handles only the Discord ↔ game bridge. Web chat works independently even without the bot.
-
-| | Current | After |
+| | Before | Now |
 | --- | --- | --- |
-| Web → Game | Web → `web_outbox/` → Bot → Game | Web → API → Game (direct) |
-| Hub | Discord bot | Go API server |
-| Without bot | Web messages not delivered | Web chat works independently |
+| Storage/reads | Bot writes `chat.json` → API reads the file | **API stores and serves from SQLite directly** |
+| Web → Game | Web → `web_outbox/` → Bot → Game | Web → **API store (feed updates instantly)** → `web_outbox/` → Bot → Game/Discord |
+| Login codes | Bot generates & rotates | **API generates & rotates** (`PANEL_CODE_ROTATE_SEC`, default 6h) — the bot only displays them on Discord |
+| Session admin | Bot writes `web_revoked.json` | **Internal API** (`/internal/sessions` · `/internal/revoke`, loopback-only) — the file path remains for legacy compatibility |
+| Without bot | No login, no web message delivery | **Login and web chat work standalone** (only game/Discord delivery waits) |
+
+- The bot is demoted to a pure bridge: it forwards game/Discord events to the API via loopback `POST /internal/ingest` (falling back to the legacy files on failure — the importer picks those up) and handles delivery/display only.
+- There is a single id authority — the DB. The importer uses file ids only as a progress cursor and assigns fresh DB ids.
+- Remaining follow-up: delivering **web → game without the bot** requires a KubeJS file-queue channel. Deliberately deferred so full-privilege RCON credentials never move into the internet-exposed API.
 
 ### 2. Chat storage — JSON file → SQLite ✅ (done)
 

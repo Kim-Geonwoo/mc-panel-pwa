@@ -5,10 +5,12 @@ package main
 // 없이 저장소만 SQLite로 바뀝니다. 첫 실행 시 파일 전체를 들여와 1회 마이그레이션을
 // 겸합니다. M3(웹 중심 전환)에서 봇이 API로 직접 넣게 되면 이 임포터는 제거됩니다.
 //
-// 마지막으로 들여온 id는 meta에 저장해 재시작해도 중복 임포트하지 않습니다.
-// 파일의 최대 id가 저장된 커서보다 작으면 봇 카운터가 리셋된 것으로 보고 경고를
-// 남긴 뒤 커서를 되감습니다(INSERT OR IGNORE라 기존 행과 충돌하는 id는 무시됨 —
-// 이 상황은 운영자가 chat.json을 지운 경우뿐이므로 로그로 알리는 것까지가 역할).
+// 파일의 id는 임포트 커서(어디까지 들여왔는지)로만 쓰고, DB에는 자동 증가 id로
+// 넣습니다 — id 권위는 DB 하나입니다. 웹 메시지는 API가 직접 DB에 넣으므로,
+// 파일 id를 그대로 보존하면 봇 카운터와 DB 카운터가 충돌해 메시지가 유실됩니다.
+// 마지막으로 들여온 파일 id는 meta에 저장해 재시작해도 중복 임포트하지 않습니다.
+// 파일의 최대 id가 커서보다 작으면 봇 카운터가 리셋된 것으로 보고 경고 후 커서를
+// 되감습니다(자동 id 부여라 재삽입돼도 유실은 없고, 최악의 경우 중복 표시).
 
 import (
 	"log"
@@ -80,8 +82,8 @@ func (s *server) importChat(prevMtime int64) int64 {
 		if m.ID <= cursor {
 			continue
 		}
-		if err := s.store.insertChat(m); err != nil {
-			log.Printf("chat import: insert failed at id %d: %v", m.ID, err)
+		if _, err := s.store.insertChatAuto(m.TS, m.Source, m.UUID, m.User, m.Text); err != nil {
+			log.Printf("chat import: insert failed at file id %d: %v", m.ID, err)
 			return prevMtime
 		}
 		n++
@@ -129,8 +131,8 @@ func (s *server) importTimeline(prevMtime int64) int64 {
 		if e.ID <= cursor {
 			continue
 		}
-		if err := s.store.insertTimeline(e); err != nil {
-			log.Printf("timeline import: insert failed at id %d: %v", e.ID, err)
+		if _, err := s.store.insertTimelineAuto(e.Ts, e.TsKst, e.UUID, e.Name, e.Event, e.IsFirst); err != nil {
+			log.Printf("timeline import: insert failed at file id %d: %v", e.ID, err)
 			return prevMtime
 		}
 		n++
