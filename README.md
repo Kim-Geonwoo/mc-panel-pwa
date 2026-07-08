@@ -42,30 +42,33 @@ flowchart LR
   end
   Bot["디스코드 봇<br/>(별도·비공개)"]
   KubeJS["서버 측 KubeJS"]
+  DB[("SQLite<br/>panel.db")]
 
   PWA -- "HTTPS (동일 출처)" --> Static
   PWA -- "Bearer 세션" --> API
-  Bot -- "auth/chat/records JSON" --> API
+  API --- DB
+  Bot -- "POST /internal/ingest (루프백)" --> Health
   KubeJS -- "status/perf JSON" --> API
   API -- "web_outbox/*.json" --> Bot
 ```
 
-패널은 게임이나 디스코드와 직접 통신하지 않습니다. **유일한 연동 지점은 디스크 위의 JSON
-파일**로, 봇과 서버 측 KubeJS 스크립트가 이 파일들을 씁니다. [데모 모드](#로컬-실행)는 바로
-이 파일들을 샘플 데이터로 대체한 것입니다.
+Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 저장되고, 봇은 게임·디스코드
+이벤트를 루프백 내부 API로 넘기는 순수 브리지입니다(실패 시 JSON 파일 폴백 → 임포터가 수습).
+상태·성능은 서버 측 KubeJS가 쓰는 JSON 파일을 읽습니다. [데모 모드](#로컬-실행)는 이
+연동들을 샘플 데이터로 대체한 것입니다.
 
 ## 기술 스택
 
 | 레이어 | 기술 |
 |---|---|
 | 프런트엔드 | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
-| 백엔드 | Go (표준 라이브러리만 — **외부 의존성 없음**) |
+| 백엔드 | Go (표준 라이브러리 + `modernc.org/sqlite` — **CGO 없는 순수 Go**) |
 | 서빙 | Go가 정적 익스포트(`output: 'export'`)를 서빙, HTTPS는 터널 경유 |
 | CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
 
 ## 인증 모델
 
-1. 디스코드 봇이 6자리 코드를 주기적으로 `auth.json`에 기록합니다.
+1. Go API가 6자리 코드를 주기적으로 생성해 `auth.json`에 기록하고, 디스코드 봇은 이를 표시만 합니다(봇이 없어도 로그인 동작).
 2. 사용자가 코드를 제출하면 `POST /api/login`이 이를 (상수 시간으로) 비교하고, 일치하면
    `sessions.json`에 세션을 만들어 불투명한 랜덤 id(`sid`)를 돌려줍니다.
 3. 클라이언트는 `sid`를 저장하고 `Authorization: Bearer <sid>`로 전송합니다.
@@ -82,8 +85,10 @@ flowchart LR
 | POST | `/api/nickname` | Bearer | 웹 닉네임 설정(고유·새니타이즈) |
 | GET | `/api/status` | Bearer | 서버 가동 여부, 접속자, TPS/MSPT, 최대 동시접속 |
 | GET | `/api/perf` | Bearer | 실시간 성능 샘플 + 누적 이력(차트용) |
-| GET/POST | `/api/chat` | Bearer | 통합 피드 읽기 / 웹 메시지 전송 |
+| GET/POST | `/api/chat` | Bearer | 통합 피드 읽기(`since`=전방 폴링·`before`=과거 로딩) / 웹 메시지 전송(저장 즉시 `{id,ts}` 반환) |
+| GET | `/api/timeline` | Bearer | 접속 이벤트(join/leave) — 타임라인 탭용 |
 | GET | `/healthz` | — | 루프백 전용 헬스 체크(가동 모니터링용) |
+| * | `/internal/*` | 루프백 | 봇 전용 내부 API(수집·세션 목록·회수) — 인터넷 노출 리스너에는 없음 |
 
 ## 로컬 실행
 
@@ -97,6 +102,13 @@ cd web && npm ci && npm run build      # -> web/out
 cd ../api && go build -o mc_sv-panel .
 PANEL_DEMO=true PANEL_STATIC_DIR=../web/out ./mc_sv-panel
 # http://localhost:8080 접속 — 로그인 코드: 000000
+```
+
+**Docker 데모:**
+
+```bash
+docker build -t mc-panel-pwa .
+docker run --rm -p 8080:8080 mc-panel-pwa   # 기본이 데모 모드(코드 000000)
 ```
 
 **프런트엔드 개발 서버(핫 리로드):** Go API와 Next 개발 서버를 서로 다른 출처로 띄웁니다 —

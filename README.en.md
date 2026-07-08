@@ -46,30 +46,34 @@ flowchart LR
   end
   Bot["Discord bot<br/>(separate, private)"]
   KubeJS["Server-side KubeJS"]
+  DB[("SQLite<br/>panel.db")]
 
   PWA -- "HTTPS (same origin)" --> Static
   PWA -- "Bearer session" --> API
-  Bot -- "auth/chat/records JSON" --> API
+  API --- DB
+  Bot -- "POST /internal/ingest (loopback)" --> Health
   KubeJS -- "status/perf JSON" --> API
   API -- "web_outbox/*.json" --> Bot
 ```
 
-The panel never talks to the game or Discord directly. **The only integration
-surface is JSON files on disk** that the bot and the server-side KubeJS script
-write — which is exactly what [demo mode](#run-locally) replaces with sample data.
+The Go API is the chat hub. Chat and timeline records live in SQLite
+(`panel.db`); the bot is a pure bridge that forwards game/Discord events over a
+loopback internal API (falling back to JSON files, which an importer picks up).
+Status/perf are read from JSON files written by server-side KubeJS — and
+[demo mode](#run-locally) replaces all of these integrations with sample data.
 
 ## Tech stack
 
 | Layer | Tech |
 |---|---|
 | Front end | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
-| Back end | Go (standard library only — **no third-party deps**) |
+| Back end | Go (standard library + `modernc.org/sqlite` — **pure Go, no CGO**) |
 | Delivery | Static export (`output: 'export'`) served by Go; HTTPS via tunnel |
 | CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
 
 ## Authentication model
 
-1. The Discord bot writes a rotating 6-digit code to `auth.json`.
+1. The Go API generates and rotates the 6-digit code in `auth.json`; the Discord bot only displays it (login works even without the bot).
 2. User submits the code → `POST /api/login` compares it (constant-time) and, on
    match, creates a session in `sessions.json`, returning an opaque random id (`sid`).
 3. The client stores the `sid` and sends `Authorization: Bearer <sid>`.
@@ -87,8 +91,10 @@ write — which is exactly what [demo mode](#run-locally) replaces with sample d
 | POST | `/api/nickname` | Bearer | Set the web nickname (unique, sanitized) |
 | GET | `/api/status` | Bearer | Server up/down, players, TPS/MSPT, peak concurrency |
 | GET | `/api/perf` | Bearer | Live perf sample + rolling history (charts) |
-| GET/POST | `/api/chat` | Bearer | Read the merged feed / post a web message |
+| GET/POST | `/api/chat` | Bearer | Read the merged feed (`since` forward poll · `before` history) / post a web message (returns `{id,ts}` on store) |
+| GET | `/api/timeline` | Bearer | Join/leave events for the timeline tab |
 | GET | `/healthz` | — | Loopback-only liveness probe (uptime monitoring) |
+| * | `/internal/*` | loopback | Bot-only internal API (ingest, session list/revoke) — never on the exposed listener |
 
 ## Run locally
 
@@ -102,6 +108,13 @@ cd web && npm ci && npm run build      # -> web/out
 cd ../api && go build -o mc_sv-panel .
 PANEL_DEMO=true PANEL_STATIC_DIR=../web/out ./mc_sv-panel
 # open http://localhost:8080  — login code: 000000
+```
+
+**Docker demo:**
+
+```bash
+docker build -t mc-panel-pwa .
+docker run --rm -p 8080:8080 mc-panel-pwa   # demo mode by default (code 000000)
 ```
 
 **Front-end dev server (hot reload):** run the Go API and Next dev on split
