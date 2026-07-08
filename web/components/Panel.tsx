@@ -9,15 +9,14 @@ import {
   fetchChatBefore,
   fetchStatus,
   getMe,
-  logout,
   sendChat,
   Status,
   UnauthorizedError,
 } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
-import PushToggle from "./PushToggle";
 import PerfView from "./PerfView";
 import ProfileSheet from "./ProfileSheet";
+import SettingsSheet from "./SettingsSheet";
 import Sparkline from "./Sparkline";
 import TimelineView from "./TimelineView";
 
@@ -50,8 +49,17 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
   return [...kept, ...incoming].sort((a, b) => a.id - b.id).slice(-3000);
 }
 
+const TABS_KEY = "mc_sv_panel_tabs";
+
 export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 성능/타임라인 탭 표시 여부(채팅은 항상 표시). 정적 export 프리렌더에서 localStorage가
+  // 없으므로 기본값으로 시작하고, 마운트 후 이펙트에서 복원한다.
+  const [tabPrefs, setTabPrefs] = useState<{ perf: boolean; timeline: boolean }>({
+    perf: true,
+    timeline: true,
+  });
   const [status, setStatus] = useState<Status | null>(null);
   const [tpsHist, setTpsHist] = useState<number[]>([]); // 상태 폴링(1분)마다 쌓는 TPS 추세
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
@@ -142,6 +150,35 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       .then((m) => setNick(m.nickname))
       .catch(() => {});
   }, []);
+
+  // 탭 표시 설정 복원(둘 다 기본 true)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TABS_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as { perf?: boolean; timeline?: boolean };
+        setTabPrefs({ perf: p.perf !== false, timeline: p.timeline !== false });
+      }
+    } catch {
+      /* 무시 */
+    }
+  }, []);
+
+  function updateTabPrefs(p: { perf: boolean; timeline: boolean }) {
+    setTabPrefs(p);
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(p));
+    } catch {
+      /* 무시 */
+    }
+  }
+
+  // 숨긴 탭이 현재 활성이면 채팅으로 되돌린다
+  useEffect(() => {
+    if ((tab === "perf" && !tabPrefs.perf) || (tab === "timeline" && !tabPrefs.timeline)) {
+      setTab("chat");
+    }
+  }, [tab, tabPrefs]);
 
   // 접속현황 폴링 — 1분에 한 번
   useEffect(() => {
@@ -274,16 +311,16 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       <header className="pt-safe flex shrink-0 items-center justify-between px-5 pb-3">
         <h1 className="text-lg font-bold tracking-tight">마크서버</h1>
         <div className="flex items-center gap-2">
-          <PushToggle />
           <ThemeToggle />
           <button
-            onClick={async () => {
-              await logout();
-              onLogout();
-            }}
-            className="rounded-full border border-line bg-card px-3.5 py-2 text-xs font-medium text-muted transition-colors hover:text-fg active:scale-95"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="설정"
+            className="grid h-9 w-9 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:text-fg active:scale-95"
           >
-            로그아웃
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
         </div>
       </header>
@@ -386,7 +423,9 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
 
       {/* 탭 */}
       <div role="tablist" aria-label="패널 탭" className="flex shrink-0 gap-1 px-4 pt-1">
-        {(["chat", "perf", "timeline"] as const).map((tb) => (
+        {(["chat", "perf", "timeline"] as const)
+          .filter((tb) => tb === "chat" || (tb === "perf" ? tabPrefs.perf : tabPrefs.timeline))
+          .map((tb) => (
           <button
             key={tb}
             role="tab"
@@ -548,6 +587,20 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             ping={profile.ping}
             onClose={() => setProfile(null)}
             onLogout={onLogout}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 설정 시트 — 알림·탭 표시·닉네임 변경·로그아웃 */}
+      <AnimatePresence>
+        {settingsOpen && (
+          <SettingsSheet
+            nick={nick}
+            onNickChanged={setNick}
+            tabPrefs={tabPrefs}
+            onTabPrefs={updateTabPrefs}
+            onLogout={onLogout}
+            onClose={() => setSettingsOpen(false)}
           />
         )}
       </AnimatePresence>

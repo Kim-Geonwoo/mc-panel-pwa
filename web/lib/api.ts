@@ -191,17 +191,24 @@ export async function fetchPerf(): Promise<Perf> {
 }
 
 // ── 웹 푸시 ──────────────────────────────────────────────────────────────────
-export async function fetchPushKey(): Promise<string> {
-  const r = await authed("/api/push/key");
+// 서버가 제공하는 VAPID 키와 알림 종류(events ⊆ ["server","join"])를 함께 준다.
+// events가 비면 이 서버는 푸시를 제공하지 않는 것 — UI에서 알림 섹션을 감춘다.
+export async function fetchPushConfig(): Promise<{ key: string; events: string[] }> {
+  const r = await authed("/api/push/config");
   if (!r.ok) throw new Error("push_unavailable");
-  return ((await r.json()) as { key: string }).key;
+  return (await r.json()) as { key: string; events: string[] };
 }
 
-export async function subscribePush(sub: PushSubscriptionJSON): Promise<void> {
+// PushSubscriptionJSON(endpoint/keys)과 구독 종류(topics)를 최상위로 병합해 보낸다
+// (백엔드는 endpoint/keys/topics를 최상위에서 읽는다). 같은 endpoint 재전송은 upsert.
+export async function subscribePush(
+  sub: PushSubscriptionJSON,
+  topics: string[],
+): Promise<void> {
   const r = await authed("/api/push/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(sub),
+    body: JSON.stringify({ ...sub, topics }),
   });
   if (!r.ok) throw new Error("subscribe_failed");
 }
