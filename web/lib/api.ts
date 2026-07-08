@@ -127,7 +127,9 @@ export async function fetchChat(
   return (await r.json()) as { messages: ChatMessage[]; last_id: number };
 }
 
-export async function sendChat(text: string): Promise<void> {
+// 전송 성공 시 서버가 부여한 id/ts를 돌려준다(웹 중심 저장 — 낙관적 전송 확정에 사용).
+// 데모 모드 등 id가 없는 응답도 허용한다.
+export async function sendChat(text: string): Promise<{ id?: number; ts?: number }> {
   const r = await authed("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -138,6 +140,18 @@ export async function sendChat(text: string): Promise<void> {
     if (r.status === 409) throw new Error("no_nickname");
     throw new Error("send_failed");
   }
+  try {
+    return (await r.json()) as { id?: number; ts?: number };
+  } catch {
+    return {};
+  }
+}
+
+// 과거 메시지 로딩(무한 스크롤) — before 미만 id의 최신 50개를 오름차순으로 받는다.
+export async function fetchChatBefore(before: number): Promise<{ messages: ChatMessage[] }> {
+  const r = await authed(`/api/chat?before=${before}`);
+  if (!r.ok) throw new Error("chat_failed");
+  return (await r.json()) as { messages: ChatMessage[] };
 }
 
 export type PerfDim = { name: string; chunks: number; entities: number };

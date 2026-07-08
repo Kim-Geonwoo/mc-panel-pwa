@@ -22,8 +22,10 @@ export default function Home() {
     try {
       const me = await getMe();
       setStage(me.nickname ? "app" : "nickname");
-    } catch {
-      setStage("login");
+    } catch (e) {
+      // 인증 실패만 로그인으로. 오프라인·일시 장애는 토큰이 살아 있으므로 앱으로
+      // 진입시킨다 — 패널의 폴러가 재연결 배너와 401 판정(로그아웃)을 담당한다.
+      setStage(e instanceof UnauthorizedError ? "login" : "app");
     }
   }, []);
 

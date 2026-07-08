@@ -242,12 +242,23 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
               return bl - al;
             });
             const isPast = day.key !== todayKey && day.key !== yestKey;
+            // 일별 요약: 유니크 유저 수 · 접속 횟수 · 총 플레이시간(진행중 세션 포함)
+            const uniq = new Set(day.sessions.map((s) => s.uuid)).size;
+            const joins = day.sessions.filter((s) => s.start).length;
+            const totalMs = day.sessions.reduce((acc, s) => {
+              if (s.start && s.end) return acc + (s.end.ts - s.start.ts);
+              if (s.inProgress && s.start) return acc + (now - s.start.ts);
+              return acc;
+            }, 0);
             return (
               <div key={day.key} className="space-y-2">
                 <div className="sticky top-0 z-10 flex items-center gap-2 bg-bg py-1 text-xs font-medium text-muted">
                   <span>{dayLabel(day.key, todayKey, yestKey)}</span>
                   <span className="h-px flex-1 bg-line" />
-                  <span className="tabular-nums">접속 {day.sessions.filter((s) => s.start).length}</span>
+                  <span className="tabular-nums">
+                    유저 {uniq} · 접속 {joins}
+                    {totalMs > 0 ? ` · ${fmtDur(totalMs)}` : ""}
+                  </span>
                 </div>
                 {cards.map(([uuid, ss]) => (
                   <UserDayCard
@@ -325,7 +336,7 @@ function UserDayCard({
       transition={{ duration: 0.18 }}
       className="rounded-2xl border border-line bg-card shadow-card"
     >
-      <button onClick={onToggle} className="flex w-full items-center gap-3 p-3 text-left">
+      <button onClick={onToggle} aria-expanded={isOpen} className="flex w-full items-center gap-3 p-3 text-left">
         <img src={avatarUrl(uuid, name)} alt="" className="h-10 w-10 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
