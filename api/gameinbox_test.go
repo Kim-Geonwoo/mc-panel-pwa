@@ -6,6 +6,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 )
 
@@ -56,5 +58,50 @@ func TestAppendGameInbox(t *testing.T) {
 	got = wrap.Messages
 	if len(got) != 1 || got[0].ID != 200 {
 		t.Fatalf("recovery: %+v", got)
+	}
+}
+
+// TestAppendGameInboxConcurrent은 동시 웹 포스트가 RMW 경쟁으로 엔트리를 잃지 않음을
+// 고정합니다. 뮤텍스가 없으면 last-writer-wins로 일부 id가 유실됩니다.
+func TestAppendGameInboxConcurrent(t *testing.T) {
+	s, dir := newTestServer(t)
+	s.cfg.gameInbox = filepath.Join(dir, "web_to_game.json")
+	const n = 30 // < gameInboxCap(50)이므로 전부 살아남아야 함
+	var wg sync.WaitGroup
+	for i := int64(0); i < n; i++ {
+		wg.Add(1)
+		go func(id int64) {
+			defer wg.Done()
+			if err := s.appendGameInbox(id, "u", "m"); err != nil {
+				t.Errorf("append %d: %v", id, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	var wrap gameInboxFile
+	if err := readJSON(s.cfg.gameInbox, &wrap); err != nil {
+		t.Fatal(err)
+	}
+	got := wrap.Messages
+	want := n
+	if want > gameInboxCap {
+		want = gameInboxCap
+	}
+	if len(got) != want {
+		t.Fatalf("동시 append로 엔트리 유실: len=%d, want %d", len(got), want)
+	}
+	// 살아남은 id는 전부 [0,n) 범위 안이며 중복이 없어야 함(정렬 후 순증가로 검증).
+	ids := make([]int64, len(got))
+	for i, e := range got {
+		ids[i] = e.ID
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for i, id := range ids {
+		if id < 0 || id >= n {
+			t.Fatalf("id 범위 벗어남: %d", id)
+		}
+		if i > 0 && ids[i-1] >= id {
+			t.Fatalf("중복/역순 id: %d 다음 %d", ids[i-1], id)
+		}
 	}
 }

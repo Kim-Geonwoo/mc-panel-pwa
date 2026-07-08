@@ -50,6 +50,47 @@ func TestLoadOrCreateVAPID(t *testing.T) {
 	}
 }
 
+// TestVapidRegenWarnsOnCorrupt은 키 파일이 손상(파싱 불가)됐을 때 재생성이
+// 여전히 유효한 키를 만들고 파일을 다시 유효한 JSON으로 남기는지 고정합니다.
+// (파일이 존재하는데 읽을 수 없으면 로그 경고를 남기고 회전 — 로그 검증은 선택)
+func TestVapidRegenWarnsOnCorrupt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vapid.json")
+	if err := os.WriteFile(path, []byte("{garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k, err := loadOrCreateVAPID(path)
+	if err != nil || k.Public == "" || k.Private == "" {
+		t.Fatalf("regen: %+v err=%v", k, err)
+	}
+	// 파일이 이제 유효한 JSON이어야 하고 방금 생성한 키와 일치해야 한다.
+	var parsed vapidKeys
+	if err := readJSON(path, &parsed); err != nil || parsed.Public != k.Public || parsed.Private != k.Private {
+		t.Fatalf("file not valid after regen: %+v err=%v", parsed, err)
+	}
+}
+
+// TestSubscribeRejectsNonHTTPS는 구독 엔드포인트가 https://로 시작하지 않으면 400을
+// 반환하는지 고정합니다(서버가 나중에 POST하는 URL — 블라인드 SSRF 방어).
+func TestSubscribeRejectsNonHTTPS(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.cfg.pushEvents = []string{"server", "join"}
+	sid, _ := s.sessions.create()
+	post := func(endpoint string) int {
+		body := `{"endpoint":"` + endpoint + `","keys":{"p256dh":"pk","auth":"ak"}}`
+		r := httptest.NewRequest(http.MethodPost, "/api/push/subscribe", strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+sid)
+		rec := httptest.NewRecorder()
+		s.handlePushSubscribe(rec, r)
+		return rec.Code
+	}
+	if code := post("http://push.example/e1"); code != http.StatusBadRequest {
+		t.Fatalf("http endpoint accepted: %d", code)
+	}
+	if code := post("https://push.example/e1"); code != http.StatusOK {
+		t.Fatalf("https endpoint rejected: %d", code)
+	}
+}
+
 func TestPushSubscribeAPI(t *testing.T) {
 	s, dir := newTestServer(t)
 	s.cfg.pushEvents = []string{"server", "join"}
