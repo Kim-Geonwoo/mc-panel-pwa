@@ -6,17 +6,14 @@
 // 그와 함께 /api/login, /api/logout, /api/me, /api/nickname, /api/status, /api/chat 같은
 // API 요청도 같은 서버에서 응답합니다.
 //
-//
 // 로그인 - 서버가 세션을 직접 관리하여, 요청을 통해서 특정 유저의 세션을 끊을 수 있습니다.
 // 유저의 세션은 서버와 유저의 브라우저 localStorage에 저장하며,
 // 2일 후에는 갱신되는 6자리 코드로 다시 로그인해야 합니다.
-// 
 //
 // 채팅은 디스코드 봇이 모든 메시지가 오가는 중심 역할을 합니다. 봇이 chat.json에 대화 내용을 써 두면
 // 웹에서는 GET /api/chat으로 그 내용을 읽고, 반대로 웹에서 보낸 메시지는 web_outbox 폴더에 쌓아 두면
 // 봇이 가져가 처리합니다(POST /api/chat). 위에서 언급한 파일 경로들은 모두 환경변수로 바꿀 수 있습니다.
 // (디스코드 봇은 아직은 공개할 계획이 없으므로, 추후 웹을 중심으로 채팅을 처리하는 방식으로 바뀔 예정입니다.)
-//
 //
 // 수정가능한 환경변수 목록
 // loadConfig() 함수 위의 주석에서 확인가능
@@ -97,7 +94,6 @@ func getenvBool(k string, def bool) bool {
 // 환경 변수 설명
 // listen: 서버가 바인딩할 주소와 포트 (예: ":8080")
 
-
 // 각종 JSON 파일 위치 지정
 
 // statusJSON: 서버 상태를 기록하는 JSON 파일 경로 (예: "./data/status.json")
@@ -110,7 +106,6 @@ func getenvBool(k string, def bool) bool {
 // outboxDir: 웹에서 보낸 메시지를 임시로 저장하는 디렉토리 경로 (예: "./data/web_outbox")
 // perfJSON: 성능 데이터를 저장하는 JSON 파일 경로 (예: "./data/perf.json")
 // perfHistJSON: 성능 기록을 저장하는 JSON 파일 경로 (예: "./data/perf_history.json")
-
 
 // staticDir: 정적 파일이 위치한 디렉토리 경로 (예: "./web/out") [Next.js로 빌드한 파일폴더]
 
@@ -210,8 +205,8 @@ func (s *sessionStore) refreshRevokedLocked() {
 	s.revokedMtime = mt
 }
 
- // genSID는 세션 ID(sid)로 사용할 예측 불가능한 랜덤 토큰(32바이트)을 생성합니다.
- // 생성된 토큰은 hex 문자열로 인코딩되어 반환됩니다.
+// genSID는 세션 ID(sid)로 사용할 예측 불가능한 랜덤 토큰(32바이트)을 생성합니다.
+// 생성된 토큰은 hex 문자열로 인코딩되어 반환됩니다.
 func genSID() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -235,7 +230,7 @@ func (s *sessionStore) create() (string, error) {
 	return sid, nil
 }
 
-// PurgeExpired는 만료된 세션들을 정리합니다. 백그라운드 정리 작업이 주기적으로 호출합니다 
+// PurgeExpired는 만료된 세션들을 정리합니다. 백그라운드 정리 작업이 주기적으로 호출합니다
 func (s *sessionStore) PurgeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -255,7 +250,6 @@ func (s *sessionStore) purgeLocked(now int64) {
 		s.persistLocked()
 	}
 }
-
 
 // get은 클라이언트가 보낸 sid가 유효한지 검증합니다. 만약 만료되었거나 취소된 세션이면 false를 반환합니다.
 func (s *sessionStore) get(sid string) (session, bool) {
@@ -316,7 +310,7 @@ type rateLimiter struct {
 	max    int
 }
 
-// newRateLimiter는 인증코드의 시도 횟수를 제한합니다. (IP별로 적용) 
+// newRateLimiter는 인증코드의 시도 횟수를 제한합니다. (IP별로 적용)
 func newRateLimiter(windowSec int64, max int) *rateLimiter {
 	return &rateLimiter{hits: map[string][]int64{}, window: windowSec, max: max}
 }
@@ -360,7 +354,6 @@ func (rl *rateLimiter) sweep() {
 		}
 	}
 }
-
 
 // clientIP는 클라이언트의 IP 주소를 반환합니다. (보안 상, 로컬에서 들어오는 요청만 포워딩 헤더를 신뢰합니다)
 func clientIP(r *http.Request) string {
@@ -434,11 +427,10 @@ type statusFile struct {
 	Players []player `json:"players"`
 }
 
-// 
 type recordsFile struct {
 	MaxConcurrent int `json:"max_concurrent"`
 }
-// 
+
 type authFile struct {
 	Code string `json:"code"`
 }
@@ -456,11 +448,11 @@ type chatMsg struct {
 // timelineEntry는 타임라인 탭에 표시할 접속 이벤트를 나타냅니다. (join/leave)
 type timelineEntry struct {
 	ID      int64  `json:"id"`
-	Ts      int64  `json:"ts"` // UTC 기준 타임스탬프
+	Ts      int64  `json:"ts"`     // UTC 기준 타임스탬프
 	TsKst   string `json:"ts_kst"` // KST 기준 타임스탬프 (YYYY-MM-DD HH:MM:SS)
 	UUID    string `json:"uuid"`
 	Name    string `json:"name"`
-	Event   string `json:"event"` // "join" 또는 "leave"
+	Event   string `json:"event"`    // "join" 또는 "leave"
 	IsFirst bool   `json:"is_first"` // 첫 방문 여부 (true = 첫 방문, false = 재방문)
 }
 
@@ -478,11 +470,11 @@ type perfHistEntry struct {
 
 type server struct {
 	cfg           config
-	sessions      *sessionStore // 세션 스토어
-	loginRL       *rateLimiter // IP별 로그인 시도 횟수를 셉니다
-	loginGlobalRL *rateLimiter // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
-	chatRL        *rateLimiter // IP별 채팅 전송 시도 횟수를 셉니다
-	perfMu        sync.Mutex // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
+	sessions      *sessionStore   // 세션 스토어
+	loginRL       *rateLimiter    // IP별 로그인 시도 횟수를 셉니다
+	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
+	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
+	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
 
@@ -507,7 +499,6 @@ func (s *server) cors(w http.ResponseWriter, r *http.Request) bool {
 	}
 	return false
 }
-
 
 // 유저의 세션 검증을 위한, Authorization 헤더에서 bearer 토큰 추출
 func bearerOf(r *http.Request) string {
@@ -589,7 +580,6 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // ------------------------------------------------------------------ API 핸들러
-
 
 // 응답속도 추정으로 로그인 코드를 알아내는 공격 방지용 코드
 
@@ -704,10 +694,10 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	// 서버 상태를 JSON으로 반환
 	resp := map[string]any{
-		"server_up":      serverUp, // 서버 온라인, 오프라인 여부
-		"max":            s.cfg.maxPlayers, // config에서 설정한 최대 플레이어 수(패널 표시전용 값)
+		"server_up":      serverUp,          // 서버 온라인, 오프라인 여부
+		"max":            s.cfg.maxPlayers,  // config에서 설정한 최대 플레이어 수(패널 표시전용 값)
 		"max_concurrent": rec.MaxConcurrent, // records.json에서 읽은 역대 최대 동시 접속자 수
-		"updated_ts":     int64(st.TS), // status.json에서 읽은 마지막 업데이트 시각(UTC 기준)
+		"updated_ts":     int64(st.TS),      // status.json에서 읽은 마지막 업데이트 시각(UTC 기준)
 	}
 	// 서버가 켜져 있으면 플레이어 정보와 TPS, MSPT 등을 반환
 	if serverUp {
@@ -716,12 +706,12 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		if players == nil {
 			players = []player{}
 		}
-		resp["count"] = st.Count // 접속자 수
-		resp["tps"] = st.TPS // 서버의 TPS 값
-		resp["mspt"] = st.Mspt // 서버의 MSPT 값
+		resp["count"] = st.Count  // 접속자 수
+		resp["tps"] = st.TPS      // 서버의 TPS 값
+		resp["mspt"] = st.Mspt    // 서버의 MSPT 값
 		resp["players"] = players // 접속한 플레이어 정보(이름, UUID, 핑)
 	} else {
- 		// 서버가 꺼져 있으면 플레이어 정보와 TPS, MSPT 등을 -1로 반환
+		// 서버가 꺼져 있으면 플레이어 정보와 TPS, MSPT 등을 -1로 반환
 		resp["count"] = 0
 		resp["tps"] = -1
 		resp["mspt"] = -1
@@ -732,7 +722,7 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 // handlePerf - 서버 성능(perf.json)과 최근 기록을 브라우저에 반환
 // 데이터 목록 : tps, mspt, p95, count, spikes
-// 서버의 kubejs 모드에서 플레이어가 1명 이상일때만 데이터값을 제공 받습니다. 
+// 서버의 kubejs 모드에서 플레이어가 1명 이상일때만 데이터값을 제공 받습니다.
 func (s *server) handlePerf(w http.ResponseWriter, r *http.Request) {
 	// cors 처리
 	if s.cors(w, r) {
@@ -821,7 +811,6 @@ func (s *server) perfSampler() {
 	}
 }
 
-
 // handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환
 func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	// cors 처리
@@ -833,7 +822,7 @@ func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 데모 모드에서는 샘플 데이터 값을 불러오고,
-  // 아니라면 timeline.json을 읽어 옵니다.
+	// 아니라면 timeline.json을 읽어 옵니다.
 	var events []timelineEntry
 	if s.cfg.demo {
 		events = demoTimeline()
@@ -846,7 +835,6 @@ func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
-
 
 // handleChat - 채팅 메시지를 브라우저에 반환하거나, 새 메시지를 받아 outbox에 저장
 func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -971,7 +959,7 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := filepath.Join(s.cfg.staticDir, clean)
-	
+
 	if fi, err := os.Stat(full); err == nil && !fi.IsDir() {
 		if strings.HasSuffix(clean, ".webmanifest") {
 			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
@@ -1037,11 +1025,11 @@ func main() {
 		hsrv := &http.Server{
 			Addr:              getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099"),
 			Handler:           hmux,
-			ReadHeaderTimeout: 5 * time.Second, // 요청 헤더를 읽는 시간 제한
+			ReadHeaderTimeout: 5 * time.Second,  // 요청 헤더를 읽는 시간 제한
 			ReadTimeout:       10 * time.Second, // 요청 본문을 읽는 시간 제한
 			WriteTimeout:      10 * time.Second, // 응답을 쓰는 시간 제한
 			IdleTimeout:       30 * time.Second, // 유휴 연결의 시간 제한
-			MaxHeaderBytes:    1 << 14, // 최대 헤더 크기 16KB
+			MaxHeaderBytes:    1 << 14,          // 최대 헤더 크기 16KB
 		}
 		// 헬스 체크 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 		log.Printf("mc_sv-panel health listener on %s (/healthz)", hsrv.Addr)
@@ -1056,9 +1044,9 @@ func main() {
 		defer t.Stop()
 		for range t.C {
 			s.sessions.PurgeExpired() // 만료된 세션 제거
-			s.loginRL.sweep() // 오래된 레이트 리밋 기록 제거
-			s.loginGlobalRL.sweep() // 오래된 레이트 리밋 기록 제거
-			s.chatRL.sweep() // 오래된 레이트 리밋 기록 제거
+			s.loginRL.sweep()         // 오래된 레이트 리밋 기록 제거
+			s.loginGlobalRL.sweep()   // 오래된 레이트 리밋 기록 제거
+			s.chatRL.sweep()          // 오래된 레이트 리밋 기록 제거
 		}
 	}()
 
@@ -1076,13 +1064,13 @@ func main() {
 
 	// ----------------------------------------------------------------- 서버 시작
 	srv := &http.Server{
-		Addr:              cfg.listen, // 서버가 바인딩할 주소와 포트
+		Addr:              cfg.listen,           // 서버가 바인딩할 주소와 포트
 		Handler:           securityHeaders(mux), // 보안 헤더를 설정하는 미들웨어를 적용합니다
-		ReadHeaderTimeout: 10 * time.Second, // 요청 헤더를 읽는 시간 제한
-		ReadTimeout:       20 * time.Second, // 요청 본문을 읽는 시간 제한
-		WriteTimeout:      30 * time.Second, // 응답을 쓰는 시간 제한
-		IdleTimeout:       60 * time.Second, // 유휴 연결의 시간 제한
-		MaxHeaderBytes:    1 << 16, // 최대 헤더 크기 64KB
+		ReadHeaderTimeout: 10 * time.Second,     // 요청 헤더를 읽는 시간 제한
+		ReadTimeout:       20 * time.Second,     // 요청 본문을 읽는 시간 제한
+		WriteTimeout:      30 * time.Second,     // 응답을 쓰는 시간 제한
+		IdleTimeout:       60 * time.Second,     // 유휴 연결의 시간 제한
+		MaxHeaderBytes:    1 << 16,              // 최대 헤더 크기 64KB
 	}
 	// 데모 모드에서는 브리지 파일을 무시하고 샘플 데이터를 제공합니다. (로그인 코드 demoLoginCode)
 	if cfg.demo {

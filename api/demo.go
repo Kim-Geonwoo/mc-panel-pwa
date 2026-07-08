@@ -12,7 +12,6 @@ import "time"
 // 데모 모드에서 로그인할 때 사용할 6자리 숫자코드 입니다.
 const demoLoginCode = "000000"
 
-
 func demoStatus() statusFile {
 	// 서버의 성능 지표 샘플값
 	return statusFile{
@@ -26,7 +25,6 @@ func demoStatus() statusFile {
 		},
 	}
 }
-
 
 func demoRecords() recordsFile {
 	return recordsFile{MaxConcurrent: 7}
@@ -72,7 +70,6 @@ func demoTimeline() []timelineEntry {
 	const a2 = "00000000-0000-0000-0000-0000000000a2" // Alex (접속 중)
 
 	const a3 = "00000000-0000-0000-0000-0000000000a3" // Notch (오프라인)
-
 
 	mk := func(id, ts int64, uuid, name, event string, first bool) timelineEntry {
 		return timelineEntry{
