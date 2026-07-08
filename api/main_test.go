@@ -30,6 +30,7 @@ func newTestServer(t *testing.T) (*server, string) {
 		perfJSON:     filepath.Join(dir, "perf.json"),
 		perfHistJSON: filepath.Join(dir, "perf_history.json"),
 		staticDir:    filepath.Join(dir, "static"),
+		gameInbox:    filepath.Join(dir, "web_to_game.json"),
 		maxPlayers:   20,
 		freshSec:     21,
 		sessionSec:   3600,

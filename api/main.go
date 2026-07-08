@@ -54,6 +54,7 @@ type config struct {
 	perfHistJSON string
 	staticDir    string
 	dbPath       string
+	gameInbox    string
 	maxPlayers   int
 	freshSec     float64
 	sessionSec   int64
@@ -124,6 +125,10 @@ func getenvBool(k string, def bool) bool {
 //
 //	(panel.db-wal, panel.db-shm)이 같은 디렉토리에 생깁니다.
 
+// gameInbox: 웹 채팅을 게임에 전달하는 큐 파일 경로 (기본 <mc>/web_to_game.json).
+//
+//	서버 측 KubeJS 스크립트가 소비합니다. 봇 없이도 웹→게임 전달이 동작합니다.
+
 // timelineRetentionDays: 타임라인 접속 이벤트 보존 일수 (기본 90일, DB에서 주기 정리)
 
 // codeRotateSec: 6자리 로그인 코드 로테이션 주기(초). 기본 21600(6시간) — 봇의 기존
@@ -160,6 +165,7 @@ func loadConfig() config {
 		perfHistJSON: getenv("PANEL_PERF_HISTORY_JSON", filepath.Join(mc, "perf_history.json")),
 		staticDir:    getenv("PANEL_STATIC_DIR", "./web/out"),
 		dbPath:       getenv("PANEL_DB", filepath.Join(br, "panel.db")),
+		gameInbox:    getenv("PANEL_GAME_INBOX", filepath.Join(mc, "web_to_game.json")),
 		maxPlayers:   getenvInt("PANEL_MAX_PLAYERS", 20),
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
@@ -1019,6 +1025,10 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, 
 			log.Printf("chat insert failed: %v", err)
 			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 			return
+		}
+		// 게임 전달: KubeJS가 소비하는 큐 파일(봇 불필요). 실패해도 저장은 성공 상태.
+		if err := s.appendGameInbox(id, sess.Nickname, text); err != nil {
+			log.Printf("game inbox write failed (message %d saved): %v", id, err)
 		}
 		if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
 			// 저장은 성공했으므로 실패해도 게임·디스코드 전달만 지연됩니다 — 로그만 남깁니다
