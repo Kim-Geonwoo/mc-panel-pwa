@@ -60,8 +60,10 @@ export default function Chart({
       u.destroy();
       plot.current = null;
     };
+    // color가 바뀌면(예: 렉 감지 시 빨간 선) 차트를 재생성해 즉시 반영한다 —
+    // 생성 비용이 밀리초 단위라 드문 색 전환에는 재생성이 가장 단순하고 안전하다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [color]);
 
   useEffect(() => {
     plot.current?.setData(buildData(data, threshold));
