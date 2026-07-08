@@ -16,6 +16,7 @@ import {
 } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
+import Sparkline from "./Sparkline";
 import TimelineView from "./TimelineView";
 
 const STATUS_MS = 60000; // 접속현황 갱신: 1분
@@ -48,6 +49,7 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
 export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
   const [status, setStatus] = useState<Status | null>(null);
+  const [tpsHist, setTpsHist] = useState<number[]>([]); // 상태 폴링(1분)마다 쌓는 TPS 추세
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [localMsgs, setLocalMsgs] = useState<LocalMsg[]>([]);
   const [nick, setNick] = useState("");
@@ -143,7 +145,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     const tick = async () => {
       try {
         const s = await fetchStatus();
-        if (alive) setStatus(s);
+        if (alive) {
+          setStatus(s);
+          // 서버가 켜져 있을 때만 추세에 반영 (최근 30포인트 ≈ 30분)
+          if (s.server_up && s.tps >= 0) setTpsHist((p) => [...p, s.tps].slice(-30));
+        }
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
       }
@@ -306,6 +312,14 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                     >
                       i
                     </button>
+                    {tpsHist.length >= 2 && (
+                      <span
+                        className={status && status.tps < 18 ? "text-danger" : "text-accent"}
+                        aria-label="최근 TPS 추세"
+                      >
+                        <Sparkline points={tpsHist} />
+                      </span>
+                    )}
                   </>
                 ) : (
                   "현재 서버가 꺼져 있습니다"
