@@ -190,6 +190,31 @@ export async function fetchPerf(): Promise<Perf> {
   return (await r.json()) as Perf;
 }
 
+// ── 웹 푸시 ──────────────────────────────────────────────────────────────────
+export async function fetchPushKey(): Promise<string> {
+  const r = await authed("/api/push/key");
+  if (!r.ok) throw new Error("push_unavailable");
+  return ((await r.json()) as { key: string }).key;
+}
+
+export async function subscribePush(sub: PushSubscriptionJSON): Promise<void> {
+  const r = await authed("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub),
+  });
+  if (!r.ok) throw new Error("subscribe_failed");
+}
+
+export async function unsubscribePush(endpoint: string): Promise<void> {
+  const r = await authed("/api/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!r.ok) throw new Error("unsubscribe_failed");
+}
+
 export type TimelineEvent = {
   id: number;
   ts: number; // epoch ms — for relative time / session duration only

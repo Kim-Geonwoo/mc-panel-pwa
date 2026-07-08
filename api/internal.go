@@ -78,6 +78,9 @@ func (s *server) handleInternalIngest(w http.ResponseWriter, r *http.Request) {
 			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 			return
 		}
+		if body.Event == "join" {
+			s.notifyJoin(name, body.IsFirst)
+		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "ts": now.UnixMilli()})
 	default:
 		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_kind"})

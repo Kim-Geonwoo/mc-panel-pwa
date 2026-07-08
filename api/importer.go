@@ -126,6 +126,8 @@ func (s *server) importTimeline(prevMtime int64) int64 {
 		log.Printf("timeline import: id counter reset detected (file max %d < cursor %d) — rewinding cursor", maxID, cursor)
 		cursor = 0
 	}
+	// 첫 실행(마이그레이션)·카운터 리셋 재임포트는 과거 이벤트 대량 삽입 — 접속 알림 억제
+	notify := !(cursor == 0 && len(all) > 1)
 	n := 0
 	for _, e := range all {
 		if e.ID <= cursor {
@@ -134,6 +136,9 @@ func (s *server) importTimeline(prevMtime int64) int64 {
 		if _, err := s.store.insertTimelineAuto(e.Ts, e.TsKst, e.UUID, e.Name, e.Event, e.IsFirst); err != nil {
 			log.Printf("timeline import: insert failed at file id %d: %v", e.ID, err)
 			return prevMtime
+		}
+		if notify && e.Event == "join" {
+			s.notifyJoin(e.Name, e.IsFirst) // 봇 폴백 경로에서도 접속 알림 유지
 		}
 		n++
 	}
