@@ -315,3 +315,24 @@ func TestAlerterWebhook(t *testing.T) {
 		t.Fatal("webhook alert not delivered")
 	}
 }
+
+func TestRunHealthcheck(t *testing.T) {
+	// 헬스 리스너가 없는 포트 → 실패(1)
+	t.Setenv("PANEL_HEALTH_LISTEN", "127.0.0.1:1") // 예약 포트 — 리스너 없음
+	if got := runHealthcheck(); got != 1 {
+		t.Fatalf("down: got %d, want 1", got)
+	}
+	// 가짜 healthz 서버 → 성공(0)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	t.Setenv("PANEL_HEALTH_LISTEN", strings.TrimPrefix(ts.URL, "http://"))
+	if got := runHealthcheck(); got != 0 {
+		t.Fatalf("up: got %d, want 0", got)
+	}
+}

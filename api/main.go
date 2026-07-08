@@ -1125,6 +1125,10 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // ------------------------------------------------------------------ main
 func main() {
+	// 컨테이너 HEALTHCHECK 모드 — 서버 기동 없이 헬스 조회만 하고 종료 (healthcheck.go)
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck())
+	}
 	cfg := loadConfig()
 	s := &server{
 		cfg:           cfg,

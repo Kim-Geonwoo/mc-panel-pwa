@@ -30,5 +30,7 @@ ENV PANEL_LISTEN=:8080 \
     PANEL_STATIC_DIR=/app/web/out \
     PANEL_DEMO=true
 EXPOSE 8080
+# 루프백 헬스 리스너를 메인 바이너리의 healthcheck 모드로 조회 (셸 없는 distroless라 exec-form)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3   CMD ["/app/mc_sv-panel", "healthcheck"]
 USER nonroot
 ENTRYPOINT ["/app/mc_sv-panel"]
