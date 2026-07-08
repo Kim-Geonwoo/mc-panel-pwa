@@ -145,10 +145,11 @@ func TestWebChatDirectInsert(t *testing.T) {
 		t.Fatalf("outbox: %v len=%d", err, len(entries))
 	}
 	// 게임 인박스에도 기록되어야 함 (KubeJS 전달용, 봇 불필요)
-	var inbox []gameInboxEntry
-	if err := readJSON(s.cfg.gameInbox, &inbox); err != nil || len(inbox) != 1 {
-		t.Fatalf("game inbox: %v len=%d", err, len(inbox))
+	var inboxFile gameInboxFile
+	if err := readJSON(s.cfg.gameInbox, &inboxFile); err != nil || len(inboxFile.Messages) != 1 {
+		t.Fatalf("game inbox: %v len=%d", err, len(inboxFile.Messages))
 	}
+	inbox := inboxFile.Messages
 	if inbox[0].User != "웹유저" || inbox[0].Text != "안녕" || inbox[0].ID != out[0].ID {
 		t.Fatalf("game inbox entry: %+v", inbox[0])
 	}

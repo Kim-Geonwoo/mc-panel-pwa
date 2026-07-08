@@ -21,18 +21,24 @@ type gameInboxEntry struct {
 	Text string `json:"text"`
 }
 
+// gameInboxFile은 큐 파일의 최상위 형태입니다. KubeJS의 JsonIO.read가 최상위
+// JSON 배열에는 null을 반환해(객체만 지원 — 배포 검증에서 확인) 객체로 감쌉니다.
+type gameInboxFile struct {
+	Messages []gameInboxEntry `json:"messages"`
+}
+
 const gameInboxCap = 50
 
 // appendGameInbox는 메시지를 큐 파일에 추가합니다(read-modify-write + 원자적 rename).
 // 파일 손상은 빈 큐로 간주하고 새로 시작합니다 — 전달은 best-effort입니다.
 func (s *server) appendGameInbox(id int64, user, text string) error {
-	var entries []gameInboxEntry
-	_ = readJSON(s.cfg.gameInbox, &entries) // 없거나 깨져 있으면 빈 큐
-	entries = append(entries, gameInboxEntry{ID: id, Ts: time.Now().UnixMilli(), User: user, Text: text})
-	if len(entries) > gameInboxCap {
-		entries = entries[len(entries)-gameInboxCap:]
+	var f gameInboxFile
+	_ = readJSON(s.cfg.gameInbox, &f) // 없거나 깨져 있으면 빈 큐
+	f.Messages = append(f.Messages, gameInboxEntry{ID: id, Ts: time.Now().UnixMilli(), User: user, Text: text})
+	if len(f.Messages) > gameInboxCap {
+		f.Messages = f.Messages[len(f.Messages)-gameInboxCap:]
 	}
-	b, err := json.Marshal(entries)
+	b, err := json.Marshal(f)
 	if err != nil {
 		return err
 	}
