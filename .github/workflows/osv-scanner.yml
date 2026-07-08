@@ -4,9 +4,9 @@ name: OSV-Scanner
 # 결과를 로그로 리포트하며, 코드 스캐닝(SARIF) 활성화에 의존하지 않는다.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   schedule:
     - cron: "41 4 * * 1" # 매주 월요일 04:41 UTC
 
