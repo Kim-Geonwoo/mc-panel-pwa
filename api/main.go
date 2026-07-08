@@ -196,7 +196,13 @@ func (s *sessionStore) refreshRevokedLocked() {
 		return
 	}
 	var list []string
-	_ = readJSON(s.revokedPath, &list)
+	if err := readJSON(s.revokedPath, &list); err != nil {
+		// 파싱 실패 시 기존 목록을 유지합니다 — 여기서 목록을 비우면 취소했던 세션이
+		// 전부 되살아나므로, 파일 오류 하나로 보안 통제가 풀리지 않게 합니다.
+		// mtime을 갱신하지 않아 다음 요청에서 다시 읽기를 시도합니다.
+		log.Printf("revoked list read failed (keeping previous %d entries): %v", len(s.revoked), err)
+		return
+	}
 	m := make(map[string]bool, len(list))
 	for _, sid := range list {
 		m[sid] = true
