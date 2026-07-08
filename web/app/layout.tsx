@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import RegisterSW from "../components/RegisterSW";
 import ViewportFix from "../components/ViewportFix";
+import VpDebug from "../components/VpDebug";
 
 export const metadata: Metadata = {
   title: "마크서버 웹 패널",
@@ -48,6 +49,7 @@ export default function RootLayout({
         {children}
         <ViewportFix />
         <RegisterSW />
+        <VpDebug />
       </body>
     </html>
   );
