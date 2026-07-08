@@ -20,6 +20,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -28,11 +29,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -54,6 +57,7 @@ type config struct {
 	freshSec     float64
 	sessionSec   int64
 	allowOrigin  string
+	alertWebhook string
 	demo         bool
 }
 
@@ -92,7 +96,10 @@ func getenvBool(k string, def bool) bool {
 }
 
 // 환경 변수 설명
-// listen: 서버가 바인딩할 주소와 포트 (예: ":8080")
+// listen: 서버가 바인딩할 주소와 포트. 기본값은 루프백(127.0.0.1:8080)으로, 리버스 프록시나
+//
+//	터널(cloudflared) 뒤에서 쓰는 위협 모델을 그대로 반영합니다. 모든 인터페이스에서
+//	받아야 하면 ":8080"처럼 호스트를 비워 명시적으로 설정하세요.
 
 // 각종 JSON 파일 위치 지정
 
@@ -117,12 +124,16 @@ func getenvBool(k string, def bool) bool {
 
 // allowOrigin: CORS 허용 도메인 (예: "https://example.com")
 
+// alertWebhook: 인증 이상 징후(로그인 실패 급증·전역 리미터 포화)를 알릴 디스코드 웹훅 URL.
+//
+//	비워 두면 경보를 로그로만 남깁니다.
+
 // demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
 	mc := getenv("PANEL_MC_DATA_DIR", "./data")
 	return config{
-		listen:       getenv("PANEL_LISTEN", ":8080"),
+		listen:       getenv("PANEL_LISTEN", "127.0.0.1:8080"),
 		statusJSON:   getenv("PANEL_STATUS_JSON", filepath.Join(mc, "status.json")),
 		recordsJSON:  getenv("PANEL_RECORDS_JSON", filepath.Join(br, "records.json")),
 		authJSON:     getenv("PANEL_AUTH_JSON", filepath.Join(br, "auth.json")),
@@ -138,6 +149,7 @@ func loadConfig() config {
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
 		allowOrigin:  getenv("PANEL_ALLOW_ORIGIN", ""),
+		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
 	}
 }
@@ -175,8 +187,14 @@ func newSessionStore(path, revokedPath string, ttl int64) *sessionStore {
 func (s *sessionStore) persistLocked() {
 	tmp := s.path + ".tmp"
 	b, _ := json.MarshalIndent(s.data, "", "  ")
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		_ = os.Rename(tmp, s.path)
+	// 디스크 가득참·권한 문제 같은 IO 실패를 조용히 삼키면 재시작 후 세션이 증발한
+	// 원인을 찾을 수 없으므로 로그를 남깁니다.
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		log.Printf("session persist failed (write): %v", err)
+		return
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		log.Printf("session persist failed (rename): %v", err)
 	}
 }
 
@@ -196,7 +214,13 @@ func (s *sessionStore) refreshRevokedLocked() {
 		return
 	}
 	var list []string
-	_ = readJSON(s.revokedPath, &list)
+	if err := readJSON(s.revokedPath, &list); err != nil {
+		// 파싱 실패 시 기존 목록을 유지합니다 — 여기서 목록을 비우면 취소했던 세션이
+		// 전부 되살아나므로, 파일 오류 하나로 보안 통제가 풀리지 않게 합니다.
+		// mtime을 갱신하지 않아 다음 요청에서 다시 읽기를 시도합니다.
+		log.Printf("revoked list read failed (keeping previous %d entries): %v", len(s.revoked), err)
+		return
+	}
 	m := make(map[string]bool, len(list))
 	for _, sid := range list {
 		m[sid] = true
@@ -474,6 +498,7 @@ type server struct {
 	loginRL       *rateLimiter    // IP별 로그인 시도 횟수를 셉니다
 	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
 	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
+	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
@@ -522,19 +547,50 @@ func (s *server) auth(w http.ResponseWriter, r *http.Request) (string, session, 
 	return sid, sess, true
 }
 
-// 로그인 요청을 처리하는 함수
+// api는 모든 API 핸들러가 공유하는 공통 체인입니다: CORS 프리플라이트 → 메서드 검증 → 핸들러.
+// 개별 핸들러마다 같은 검사를 반복하다 일부에서 누락되는 일이 있어 한 곳으로 모았습니다.
+// 허용되지 않은 메서드는 Allow 헤더와 함께 405로 통일해 응답합니다.
+func (s *server) api(methods string, h http.HandlerFunc) http.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, m := range strings.Split(methods, ",") {
+		allowed[strings.TrimSpace(m)] = true
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.cors(w, r) {
+			return
+		}
+		if !allowed[r.Method] {
+			w.Header().Set("Allow", strings.ReplaceAll(methods, ",", ", "))
+			s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
+			return
+		}
+		h(w, r)
+	}
+}
+
+// apiAuthed는 api 체인에 세션 검증을 더한 것입니다. 검증에 성공하면 sid와 세션을 핸들러에 넘깁니다.
+func (s *server) apiAuthed(methods string, h func(w http.ResponseWriter, r *http.Request, sid string, sess session)) http.HandlerFunc {
+	return s.api(methods, func(w http.ResponseWriter, r *http.Request) {
+		sid, sess, ok := s.auth(w, r)
+		if !ok {
+			return
+		}
+		h(w, r, sid, sess)
+	})
+}
+
+// 로그인 요청을 처리하는 함수 (공통 체인: s.api("POST"))
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	// POST 요청인지 검증 - 오류=405
-	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
-		return
-	}
+	ip := clientIP(r)
 	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
-	if !s.loginRL.allow(clientIP(r)) || !s.loginGlobalRL.allow("global") {
+	// (전역 리미터 포화는 IP를 바꿔 가며 시도하는 공격 신호라 경보 범위를 구분합니다)
+	if !s.loginRL.allow(ip) {
+		s.alert.rateLimited("ip", ip)
+		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
+		return
+	}
+	if !s.loginGlobalRL.allow("global") {
+		s.alert.rateLimited("global", ip)
 		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
 		return
 	}
@@ -555,16 +611,19 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.demo {
 		// 데모 모드에서는 코드를 갱신해 줄 봇이 없으므로, 미리 정해 둔 데모용 코드를 그대로 받아들입니다.
 		if subtleNE(code, demoLoginCode) {
+			s.alert.loginFail(ip)
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
 		}
 	} else {
 		var af authFile
 		if err := readJSON(s.cfg.authJSON, &af); err != nil || af.Code == "" {
+			log.Printf("login unavailable (auth code missing) for %s", ip)
 			s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no_active_code"})
 			return
 		}
 		if len(code) != len(af.Code) || subtleNE(code, af.Code) {
+			s.alert.loginFail(ip)
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
 		}
@@ -576,6 +635,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
 	}
+	log.Printf("login ok from %s", ip)
 	s.writeJSON(w, http.StatusOK, map[string]any{"token": sid})
 }
 
@@ -596,12 +656,8 @@ func subtleNE(a, b string) bool {
 	return v != 0
 }
 
-// handleLogout - 로그아웃 처리
+// handleLogout - 로그아웃 처리 (공통 체인: s.api("POST"))
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
 	// bearer 토큰에서 세션sid를 가져오고, 해당 sid를 세션파일에서 제거 (로그아웃은 세션을 취소합니다. 유지x)
 	if sid := bearerOf(r); sid != "" {
 		s.sessions.remove(sid)
@@ -609,36 +665,13 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환
-func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증 - 오류=응답없음
-	_, sess, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
+// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleMe(w http.ResponseWriter, r *http.Request, _ string, sess session) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": sess.Nickname})
 }
 
-// handleNickname - 닉네임 설정 처리
-func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	sid, _, ok := s.auth(w, r)
-	// sid의 유효성 검증
-	if !ok {
-		return
-	}
-	// POST 요청인지 검증 - 오류=405
-	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
-		return
-	}
+// handleNickname - 닉네임 설정 처리 (공통 체인: s.apiAuthed("POST"))
+func (s *server) handleNickname(w http.ResponseWriter, r *http.Request, sid string, _ session) {
 	var body struct {
 		Nickname string `json:"nickname"`
 	}
@@ -667,16 +700,8 @@ func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": nick})
 }
 
-// handleStatus - 서버 상태를 브라우저에 반환
-func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// handleStatus - 서버 상태를 브라우저에 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleStatus(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	var st statusFile
 	var rec recordsFile
 	// 데모 모드라면 데모 데이터 반환,
@@ -723,15 +748,8 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // handlePerf - 서버 성능(perf.json)과 최근 기록을 브라우저에 반환
 // 데이터 목록 : tps, mspt, p95, count, spikes
 // 서버의 kubejs 모드에서 플레이어가 1명 이상일때만 데이터값을 제공 받습니다.
-func (s *server) handlePerf(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// (공통 체인: s.apiAuthed("GET"))
+func (s *server) handlePerf(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	var cur map[string]any
 	// 데모 모드라면 데모용 샘플 데이터를 가져오고,
 	// 아니라면 perf.json을 읽어 옵니다. (KubeJS가 기록한 값)
@@ -811,16 +829,8 @@ func (s *server) perfSampler() {
 	}
 }
 
-// handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환
-func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	// 데모 모드에서는 샘플 데이터 값을 불러오고,
 	// 아니라면 timeline.json을 읽어 옵니다.
 	var events []timelineEntry
@@ -837,16 +847,8 @@ func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleChat - 채팅 메시지를 브라우저에 반환하거나, 새 메시지를 받아 outbox에 저장
-func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	sid, sess, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
+// (공통 체인: s.apiAuthed("GET,POST"))
+func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, sess session) {
 	// GET 요청이면 since 이후의 메시지를 반환, POST 요청이면 새 메시지를 받아 outbox에 저장
 	switch r.Method {
 	case http.MethodGet:
@@ -915,8 +917,6 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	default:
-		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -989,6 +989,12 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		// 패널은 카메라·마이크·위치를 쓰지 않으므로 브라우저 기능 접근을 명시적으로 차단합니다.
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		// API 응답에는 세션 상태·채팅이 담기므로 브라우저·중간 캐시에 남지 않게 합니다.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
 		// Next.js 정적 빌드 결과물은 작은 인라인 부트스트랩·테마 스크립트와 인라인 스타일을 쓰기 때문에,
 		// script와 style에는 'unsafe-inline'을 허용해야 합니다. 그 밖의 출처는 모두 막아 둡니다.
 		h.Set("Content-Security-Policy",
@@ -1008,6 +1014,7 @@ func main() {
 		loginRL:       newRateLimiter(600, 10),  // IP 하나당 600초(10분)에 로그인 10번까지
 		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체로는 600초(10분)에 로그인 120번까지
 		chatRL:        newRateLimiter(5, 3),     // 세션 하나당 5초에 메시지 3개까지
+		alert:         newAlerter(cfg.alertWebhook),
 	}
 
 	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다
@@ -1052,14 +1059,14 @@ func main() {
 
 	// ----------------------------------------------------------------- 메인 리스너 (경로 등록)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/login", s.handleLogin)
-	mux.HandleFunc("/api/logout", s.handleLogout)
-	mux.HandleFunc("/api/me", s.handleMe)
-	mux.HandleFunc("/api/nickname", s.handleNickname)
-	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/perf", s.handlePerf)
-	mux.HandleFunc("/api/chat", s.handleChat)
-	mux.HandleFunc("/api/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/login", s.api("POST", s.handleLogin))
+	mux.HandleFunc("/api/logout", s.api("POST", s.handleLogout))
+	mux.HandleFunc("/api/me", s.apiAuthed("GET", s.handleMe))
+	mux.HandleFunc("/api/nickname", s.apiAuthed("POST", s.handleNickname))
+	mux.HandleFunc("/api/status", s.apiAuthed("GET", s.handleStatus))
+	mux.HandleFunc("/api/perf", s.apiAuthed("GET", s.handlePerf))
+	mux.HandleFunc("/api/chat", s.apiAuthed("GET,POST", s.handleChat))
+	mux.HandleFunc("/api/timeline", s.apiAuthed("GET", s.handleTimeline))
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작
@@ -1076,9 +1083,22 @@ func main() {
 	if cfg.demo {
 		log.Printf("mc_sv-panel DEMO MODE — bridge files ignored, sample data served (login code %q)", demoLoginCode)
 	}
+	// 종료 시그널(SIGINT/SIGTERM)을 받으면 진행 중인 요청을 마무리하고 내려갑니다 —
+	// systemd 재시작 시 세션 저장 같은 쓰기 도중 프로세스가 끊기지 않도록.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		log.Printf("shutdown signal received — draining connections")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
 	// 메인 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 	log.Printf("mc_sv-panel listening on %s (static=%s)", cfg.listen, cfg.staticDir)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	log.Printf("mc_sv-panel shutdown complete")
 }
