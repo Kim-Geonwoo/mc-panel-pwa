@@ -152,27 +152,31 @@ Currently the Discord bot is the sole hub for all chat messages. Without the bot
 | Hub | Discord bot | Go API server |
 | Without bot | Web messages not delivered | Web chat works independently |
 
-### 2. Chat storage — JSON file → SQLite
+### 2. Chat storage — JSON file → SQLite ✅ (done)
 
-Reading the entire `chat.json` on every request becomes linearly slower as messages accumulate.
+Reading the entire `chat.json` on every request became linearly slower as messages accumulated, so storage moved to SQLite.
 
-**After the change:** SQLite with an index on `ts`, so `since`-based polling is a simple indexed lookup. No new external dependencies — Go standard stack is preserved.
+- Driver: `modernc.org/sqlite` — a single pure-Go, CGO-free dependency (build environment stays simple)
+- The cursor is **`id`-based**, not `ts`-based — a ts cursor can skip messages that land in the same millisecond, while the id cursor stays compatible with the existing frontend (`since=last_id`)
+- Timeline (join/leave) events share the same DB, with size managed by a retention window (`PANEL_TIMELINE_RETENTION_DAYS`, default 90 days)
+- During the transition an importer ingests the bot-written `chat.json`/`timeline.json` into the DB every 2s (the first run doubles as the one-time migration). The importer goes away once §1 lands
+- DB path: `PANEL_DB` (default `<bridge>/panel.db`), WAL mode, single writer
 
 ```sql
--- Planned schema
+-- Implemented schema
 CREATE TABLE messages (
-    id      INTEGER PRIMARY KEY,
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
     ts      INTEGER NOT NULL,
     source  TEXT NOT NULL,  -- 'game' | 'discord' | 'web'
-    uuid    TEXT,
+    uuid    TEXT NOT NULL DEFAULT '',
     user    TEXT NOT NULL,
     text    TEXT NOT NULL
 );
 CREATE INDEX idx_messages_ts ON messages(ts);
+-- timeline(id, ts, ts_kst, uuid, name, event, is_first) + idx_timeline_ts
 ```
 
-- `GET /api/chat?since=<ts>` → `SELECT ... WHERE ts > ?` (no full-file parse)
-- Driver: `modernc.org/sqlite` (no CGO required)
+- `GET /api/chat?since=<id>` → `SELECT ... WHERE id > ? ORDER BY id` (no full-file parse)
 
 ## License
 

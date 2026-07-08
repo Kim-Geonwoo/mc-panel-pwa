@@ -145,27 +145,31 @@ build.sh  양쪽 빌드
 | 허브 | 디스코드 봇 | Go API 서버 |
 | 봇 없을 때 | 웹 메시지 전달 불가 | 웹 채팅 독립 동작 |
 
-### 2. 채팅 저장소 — JSON 파일 → SQLite 전환
+### 2. 채팅 저장소 — JSON 파일 → SQLite 전환 ✅ (적용됨)
 
-현재 `chat.json`을 통째로 읽는 방식은 메시지가 쌓일수록 성능이 선형으로 나빠집니다.
+`chat.json`을 통째로 읽는 방식은 메시지가 쌓일수록 성능이 선형으로 나빠져 SQLite로 전환했습니다.
 
-**변경 후:** SQLite로 전환하여 `since` 조회를 인덱스로 처리합니다. 외부 의존성 없이 Go 표준 스택 유지.
+- 드라이버: `modernc.org/sqlite` — CGO가 필요 없는 순수 Go 의존성 1개 (빌드 환경은 그대로 단순)
+- 커서는 `ts`가 아니라 **`id` 기준**입니다 — 같은 ms에 메시지가 몰리면 ts 커서는 메시지를 건너뛸 수 있고, id 커서는 기존 프런트(`since=last_id`)와 그대로 호환됩니다
+- 타임라인(join/leave)도 같은 DB로 통합하고 보존 기간(`PANEL_TIMELINE_RETENTION_DAYS`, 기본 90일)으로 크기를 관리합니다
+- 전환기에는 봇이 쓰는 `chat.json`/`timeline.json`을 임포터가 2초 주기로 DB에 반영합니다(첫 실행 시 전체 마이그레이션 겸용). §1 완료 시 임포터는 제거됩니다
+- DB 경로: `PANEL_DB` (기본 `<bridge>/panel.db`), WAL 모드·단일 라이터
 
 ```sql
--- 예정 스키마
+-- 적용된 스키마
 CREATE TABLE messages (
-    id      INTEGER PRIMARY KEY,
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
     ts      INTEGER NOT NULL,
     source  TEXT NOT NULL,  -- 'game' | 'discord' | 'web'
-    uuid    TEXT,
+    uuid    TEXT NOT NULL DEFAULT '',
     user    TEXT NOT NULL,
     text    TEXT NOT NULL
 );
 CREATE INDEX idx_messages_ts ON messages(ts);
+-- timeline(id, ts, ts_kst, uuid, name, event, is_first) + idx_timeline_ts
 ```
 
-- `GET /api/chat?since=<ts>` → `SELECT ... WHERE ts > ?` (전체 파일 파싱 불필요)
-- Go: `modernc.org/sqlite` (CGO 불필요) 또는 표준 `database/sql` + 드라이버
+- `GET /api/chat?since=<id>` → `SELECT ... WHERE id > ? ORDER BY id` (전체 파일 파싱 불필요)
 
 ## 라이선스
 
