@@ -961,6 +961,12 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		// 패널은 카메라·마이크·위치를 쓰지 않으므로 브라우저 기능 접근을 명시적으로 차단합니다.
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		// API 응답에는 세션 상태·채팅이 담기므로 브라우저·중간 캐시에 남지 않게 합니다.
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
 		// Next.js 정적 빌드 결과물은 작은 인라인 부트스트랩·테마 스크립트와 인라인 스타일을 쓰기 때문에,
 		// script와 style에는 'unsafe-inline'을 허용해야 합니다. 그 밖의 출처는 모두 막아 둡니다.
 		h.Set("Content-Security-Policy",
