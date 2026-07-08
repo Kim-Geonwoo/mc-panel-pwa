@@ -15,6 +15,7 @@ import {
   UnauthorizedError,
 } from "../lib/api";
 import ThemeToggle from "./ThemeToggle";
+import PushToggle from "./PushToggle";
 import PerfView from "./PerfView";
 import ProfileSheet from "./ProfileSheet";
 import Sparkline from "./Sparkline";
@@ -273,6 +274,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       <header className="pt-safe flex shrink-0 items-center justify-between px-5 pb-3">
         <h1 className="text-lg font-bold tracking-tight">마크서버</h1>
         <div className="flex items-center gap-2">
+          <PushToggle />
           <ThemeToggle />
           <button
             onClick={async () => {
