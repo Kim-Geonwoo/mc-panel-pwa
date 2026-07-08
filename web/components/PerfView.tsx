@@ -42,7 +42,32 @@ export default function PerfView({
   }, [onLogout]);
 
   if (!perf) {
-    return <div className="grid flex-1 place-items-center text-sm text-muted">불러오는 중…</div>;
+    return (
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-2">
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-line bg-card p-3 text-center shadow-card">
+              <div className="mx-auto h-5 w-10 rounded bg-line motion-safe:animate-pulse" />
+              <div className="mx-auto mt-1 h-2.5 w-12 rounded bg-line motion-safe:animate-pulse" />
+            </div>
+          ))}
+        </div>
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-2xl border border-line bg-card p-4 shadow-card">
+            <div className="mb-2 h-3 w-28 rounded bg-line motion-safe:animate-pulse" />
+            <div className="h-[130px] w-full rounded bg-line motion-safe:animate-pulse" />
+          </div>
+        ))}
+        <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
+          <div className="mb-2 h-3 w-32 rounded bg-line motion-safe:animate-pulse" />
+          <div className="space-y-1.5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-4 w-full rounded bg-line motion-safe:animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
   const cur = perf.current;
   const hist = perf.history ?? [];
