@@ -9,13 +9,19 @@ export default function RegisterSW() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
-    const onLoad = () => {
+    const register = () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {
         /* 등록 오류 무시(예: 보안 컨텍스트 아님) */
       });
     };
-    window.addEventListener("load", onLoad);
-    return () => window.removeEventListener("load", onLoad);
+    // 이 이펙트가 load 이후에 실행되면 load 리스너는 영영 발화하지 않는다 —
+    // 이미 로드 완료 상태면 즉시 등록한다.
+    if (document.readyState === "complete") {
+      register();
+      return;
+    }
+    window.addEventListener("load", register);
+    return () => window.removeEventListener("load", register);
   }, []);
   return null;
 }

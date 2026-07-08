@@ -31,6 +31,9 @@
       "groupName": "github-actions"
     }
   ],
+  "pre-commit": {
+    "enabled": true
+  },
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
     "description": "보안 수정은 쿨다운을 건너뛰고 즉시 진행한다.",
