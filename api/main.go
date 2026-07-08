@@ -92,7 +92,10 @@ func getenvBool(k string, def bool) bool {
 }
 
 // 환경 변수 설명
-// listen: 서버가 바인딩할 주소와 포트 (예: ":8080")
+// listen: 서버가 바인딩할 주소와 포트. 기본값은 루프백(127.0.0.1:8080)으로, 리버스 프록시나
+//
+//	터널(cloudflared) 뒤에서 쓰는 위협 모델을 그대로 반영합니다. 모든 인터페이스에서
+//	받아야 하면 ":8080"처럼 호스트를 비워 명시적으로 설정하세요.
 
 // 각종 JSON 파일 위치 지정
 
@@ -122,7 +125,7 @@ func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
 	mc := getenv("PANEL_MC_DATA_DIR", "./data")
 	return config{
-		listen:       getenv("PANEL_LISTEN", ":8080"),
+		listen:       getenv("PANEL_LISTEN", "127.0.0.1:8080"),
 		statusJSON:   getenv("PANEL_STATUS_JSON", filepath.Join(mc, "status.json")),
 		recordsJSON:  getenv("PANEL_RECORDS_JSON", filepath.Join(br, "records.json")),
 		authJSON:     getenv("PANEL_AUTH_JSON", filepath.Join(br, "auth.json")),
