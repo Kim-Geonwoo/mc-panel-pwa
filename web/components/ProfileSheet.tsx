@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { avatarUrl, fetchTimeline, UnauthorizedError } from "../lib/api";
+import { fetchTimeline, UnauthorizedError } from "../lib/api";
+import Avatar from "./Avatar";
 
 // 접속자 목록에서 플레이어를 눌렀을 때 뜨는 프로필 바텀시트.
 // 타임라인 이벤트(보존 기간 내)를 1회 조회해 접속 통계를 계산한다 — 폴링 없음.
@@ -75,8 +76,7 @@ export default function ProfileSheet({
       >
         <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-line sm:hidden" />
         <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={avatarUrl(uuid, name)} alt="" width={48} height={48} className="rounded-xl" />
+          <Avatar uuid={uuid} name={name} px={48} className="rounded-xl" />
           <div>
             <div className="text-base font-bold text-fg">{name}</div>
             <div className="text-xs tabular-nums text-muted">{ping >= 0 ? `핑 ${ping}ms` : "핑 —"}</div>

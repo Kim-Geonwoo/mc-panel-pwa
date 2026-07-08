@@ -7,8 +7,8 @@ import {
   fetchStatus,
   TimelineEvent,
   UnauthorizedError,
-  avatarUrl,
 } from "../lib/api";
+import Avatar from "./Avatar";
 
 const POLL_MS = 3000; // 데이터(이력 + 현재 접속자) 폴링
 const CLOCK_MS = 30000; // 상대시간 갱신 전용 틱(폴링과 분리 → 라이브가 멈춰 보이지 않음)
@@ -207,7 +207,7 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
               const since = onlineSince.get(o.uuid);
               return (
                 <div key={o.uuid} className="flex items-center gap-1.5 rounded-full border border-line bg-card2 py-1 pl-1 pr-2.5">
-                  <img src={avatarUrl(o.uuid, o.name)} alt="" className="h-6 w-6 rounded-lg" />
+                  <Avatar uuid={o.uuid} name={o.name} px={24} className="rounded-lg" />
                   <span className="text-xs font-medium text-fg">{o.name}</span>
                   {since != null && (
                     <span className="tabular-nums text-[11px] text-muted">{fmtDur(now - since)}째</span>
@@ -337,7 +337,7 @@ function UserDayCard({
       className="rounded-2xl border border-line bg-card shadow-card"
     >
       <button onClick={onToggle} aria-expanded={isOpen} className="flex w-full items-center gap-3 p-3 text-left">
-        <img src={avatarUrl(uuid, name)} alt="" className="h-10 w-10 shrink-0 rounded-xl" />
+        <Avatar uuid={uuid} name={name} px={40} className="rounded-xl" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-fg">{name}</span>
