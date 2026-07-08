@@ -57,6 +57,7 @@ type config struct {
 	freshSec     float64
 	sessionSec   int64
 	allowOrigin  string
+	alertWebhook string
 	demo         bool
 }
 
@@ -123,6 +124,10 @@ func getenvBool(k string, def bool) bool {
 
 // allowOrigin: CORS 허용 도메인 (예: "https://example.com")
 
+// alertWebhook: 인증 이상 징후(로그인 실패 급증·전역 리미터 포화)를 알릴 디스코드 웹훅 URL.
+//
+//	비워 두면 경보를 로그로만 남깁니다.
+
 // demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
@@ -144,6 +149,7 @@ func loadConfig() config {
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
 		allowOrigin:  getenv("PANEL_ALLOW_ORIGIN", ""),
+		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
 	}
 }
@@ -492,6 +498,7 @@ type server struct {
 	loginRL       *rateLimiter    // IP별 로그인 시도 횟수를 셉니다
 	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
 	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
+	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
@@ -574,8 +581,16 @@ func (s *server) apiAuthed(methods string, h func(w http.ResponseWriter, r *http
 
 // 로그인 요청을 처리하는 함수 (공통 체인: s.api("POST"))
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
 	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
-	if !s.loginRL.allow(clientIP(r)) || !s.loginGlobalRL.allow("global") {
+	// (전역 리미터 포화는 IP를 바꿔 가며 시도하는 공격 신호라 경보 범위를 구분합니다)
+	if !s.loginRL.allow(ip) {
+		s.alert.rateLimited("ip", ip)
+		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
+		return
+	}
+	if !s.loginGlobalRL.allow("global") {
+		s.alert.rateLimited("global", ip)
 		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
 		return
 	}
@@ -596,16 +611,19 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.demo {
 		// 데모 모드에서는 코드를 갱신해 줄 봇이 없으므로, 미리 정해 둔 데모용 코드를 그대로 받아들입니다.
 		if subtleNE(code, demoLoginCode) {
+			s.alert.loginFail(ip)
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
 		}
 	} else {
 		var af authFile
 		if err := readJSON(s.cfg.authJSON, &af); err != nil || af.Code == "" {
+			log.Printf("login unavailable (auth code missing) for %s", ip)
 			s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no_active_code"})
 			return
 		}
 		if len(code) != len(af.Code) || subtleNE(code, af.Code) {
+			s.alert.loginFail(ip)
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
 		}
@@ -617,6 +635,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
 	}
+	log.Printf("login ok from %s", ip)
 	s.writeJSON(w, http.StatusOK, map[string]any{"token": sid})
 }
 
@@ -995,6 +1014,7 @@ func main() {
 		loginRL:       newRateLimiter(600, 10),  // IP 하나당 600초(10분)에 로그인 10번까지
 		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체로는 600초(10분)에 로그인 120번까지
 		chatRL:        newRateLimiter(5, 3),     // 세션 하나당 5초에 메시지 3개까지
+		alert:         newAlerter(cfg.alertWebhook),
 	}
 
 	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다
