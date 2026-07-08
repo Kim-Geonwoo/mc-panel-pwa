@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -69,11 +70,19 @@ CREATE TABLE IF NOT EXISTS push_subs (
 	endpoint TEXT PRIMARY KEY,
 	p256dh   TEXT NOT NULL,
 	auth     TEXT NOT NULL,
-	created  INTEGER NOT NULL
+	created  INTEGER NOT NULL,
+	topics   TEXT NOT NULL DEFAULT 'server,join'
 );`
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
+	}
+	// 마이그레이션: 구 배포(topics 컬럼 없는 push_subs)에 컬럼을 더합니다. 신규 설치는
+	// 위 CREATE에 이미 포함되므로 여기서는 "duplicate column" 에러가 나며, 그때만 무시합니다.
+	if _, err := db.Exec(`ALTER TABLE push_subs ADD COLUMN topics TEXT NOT NULL DEFAULT 'server,join'`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate push_subs.topics: %w", err)
 	}
 	// 채팅 내용이 담기므로 DB 파일을 0600으로 — 봇의 런타임 파일 정책과 동일.
 	// (database/sql이 만드는 기본 권한은 0644라 다른 로컬 계정이 읽을 수 있음.
@@ -243,14 +252,16 @@ type pushSub struct {
 	Endpoint string
 	P256dh   string
 	Auth     string
+	Topics   string // 구독한 알림 종류 CSV(예: "server,join")
 }
 
-// upsertPushSub는 구독을 저장합니다. 같은 endpoint 재등록은 키를 갱신합니다.
-func (st *store) upsertPushSub(endpoint, p256dh, auth string) error {
-	_, err := st.db.Exec(`INSERT INTO push_subs(endpoint, p256dh, auth, created)
-		VALUES(?, ?, ?, unixepoch())
-		ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
-		endpoint, p256dh, auth)
+// upsertPushSub는 구독을 저장합니다. 같은 endpoint 재등록은 키와 구독 종류를 갱신합니다.
+func (st *store) upsertPushSub(endpoint, p256dh, auth, topics string) error {
+	_, err := st.db.Exec(`INSERT INTO push_subs(endpoint, p256dh, auth, created, topics)
+		VALUES(?, ?, ?, unixepoch(), ?)
+		ON CONFLICT(endpoint) DO UPDATE SET
+			p256dh = excluded.p256dh, auth = excluded.auth, topics = excluded.topics`,
+		endpoint, p256dh, auth, topics)
 	return err
 }
 
@@ -260,7 +271,7 @@ func (st *store) deletePushSub(endpoint string) error {
 }
 
 func (st *store) pushSubs() ([]pushSub, error) {
-	rows, err := st.db.Query(`SELECT endpoint, p256dh, auth FROM push_subs`)
+	rows, err := st.db.Query(`SELECT endpoint, p256dh, auth, topics FROM push_subs`)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +279,7 @@ func (st *store) pushSubs() ([]pushSub, error) {
 	var out []pushSub
 	for rows.Next() {
 		var p pushSub
-		if err := rows.Scan(&p.Endpoint, &p.P256dh, &p.Auth); err != nil {
+		if err := rows.Scan(&p.Endpoint, &p.P256dh, &p.Auth, &p.Topics); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

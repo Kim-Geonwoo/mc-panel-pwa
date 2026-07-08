@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -46,13 +47,16 @@ func loadOrCreateVAPID(path string) (vapidKeys, error) {
 	return k, nil
 }
 
-// handlePushKey는 브라우저 구독에 필요한 VAPID 공개키를 돌려줍니다.
-func (s *server) handlePushKey(w http.ResponseWriter, r *http.Request, _ string, _ session) {
-	if s.vapid.Public == "" {
-		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "push_unavailable"})
+// handlePushConfig는 클라이언트가 푸시를 구성하는 데 필요한 값을 한 번에 돌려줍니다:
+// VAPID 공개키와 서버가 허용한 알림 종류 목록. 데모 모드·VAPID 미로드·활성 이벤트
+// 0개 중 하나라도 해당하면 빈 응답({"key":"","events":[]})을 200으로 돌려주어, UI가
+// 푸시 관련 화면을 숨길지 스스로 판단하게 합니다(503로 오류 처리하지 않습니다).
+func (s *server) handlePushConfig(w http.ResponseWriter, r *http.Request, _ string, _ session) {
+	if s.cfg.demo || s.vapid.Public == "" || len(s.cfg.pushEvents) == 0 {
+		s.writeJSON(w, http.StatusOK, map[string]any{"key": "", "events": []string{}})
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]string{"key": s.vapid.Public})
+	s.writeJSON(w, http.StatusOK, map[string]any{"key": s.vapid.Public, "events": s.cfg.pushEvents})
 }
 
 // handlePushSubscribe는 브라우저 PushSubscription을 저장합니다. (인증 필수 — apiAuthed 체인)
@@ -67,18 +71,50 @@ func (s *server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 			P256dh string `json:"p256dh"`
 			Auth   string `json:"auth"`
 		} `json:"keys"`
+		Topics []string `json:"topics"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil ||
 		body.Endpoint == "" || body.Keys.P256dh == "" || body.Keys.Auth == "" {
 		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 		return
 	}
-	if err := s.store.upsertPushSub(body.Endpoint, body.Keys.P256dh, body.Keys.Auth); err != nil {
+	topics := s.normalizeTopics(body.Topics)
+	if err := s.store.upsertPushSub(body.Endpoint, body.Keys.P256dh, body.Keys.Auth, topics); err != nil {
 		log.Printf("push subscribe failed: %v", err)
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// normalizeTopics는 클라이언트가 요청한 구독 종류를 서버가 허용한 활성 이벤트와
+// 교집합해 CSV로 정규화합니다. 요청이 비었거나 유효한 종류가 하나도 없으면 활성 전체를
+// 구독합니다. 저장 순서는 활성 목록 순서("server" 먼저, "join")로 고정됩니다.
+func (s *server) normalizeTopics(req []string) string {
+	want := make(map[string]bool, len(req))
+	for _, t := range req {
+		want[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	out := make([]string, 0, len(s.cfg.pushEvents))
+	for _, ev := range s.cfg.pushEvents { // 이미 "server","join" 순으로 정렬됨
+		if len(req) == 0 || want[ev] {
+			out = append(out, ev)
+		}
+	}
+	if len(out) == 0 { // 요청이 활성 이벤트와 전혀 겹치지 않으면 활성 전체로 대체
+		out = append(out, s.cfg.pushEvents...)
+	}
+	return strings.Join(out, ",")
+}
+
+// hasTopic는 CSV로 저장된 구독 종류에 topic이 포함되는지 검사합니다.
+func hasTopic(csv, topic string) bool {
+	for _, t := range strings.Split(csv, ",") {
+		if strings.TrimSpace(t) == topic {
+			return true
+		}
+	}
+	return false
 }
 
 // handlePushUnsubscribe는 구독을 제거합니다.
@@ -102,13 +138,17 @@ func (s *server) handlePushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// sendPushAll은 모든 구독에 알림을 비동기 발송합니다. 404/410 구독은 제거합니다.
-func (s *server) sendPushAll(title, body string) {
-	go s.sendPushAllSync(title, body)
+// sendPushAll은 topic을 구독한 구독에 알림을 비동기 발송합니다. 404/410 구독은 제거합니다.
+func (s *server) sendPushAll(topic, title, body string) {
+	go s.sendPushAllSync(topic, title, body)
 }
 
-func (s *server) sendPushAllSync(title, body string) {
+func (s *server) sendPushAllSync(topic, title, body string) {
 	if s.store == nil || s.vapid.Private == "" {
+		return
+	}
+	// 서버 설정에서 해당 알림 종류가 꺼져 있으면 아무것도 보내지 않습니다.
+	if !s.cfg.pushEventEnabled(topic) {
 		return
 	}
 	subs, err := s.store.pushSubs()
@@ -117,6 +157,10 @@ func (s *server) sendPushAllSync(title, body string) {
 	}
 	payload, _ := json.Marshal(map[string]string{"title": title, "body": body})
 	for _, sub := range subs {
+		// 이 종류를 구독하지 않은 사용자는 건너뜁니다.
+		if !hasTopic(sub.Topics, topic) {
+			continue
+		}
 		resp, err := webpush.SendNotification(payload, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys:     webpush.Keys{P256dh: sub.P256dh, Auth: sub.Auth},
@@ -189,15 +233,20 @@ func (s *server) runStatusWatcher(stop <-chan struct{}) {
 		up := st.TS > 0 && (float64(time.Now().UnixMilli())-st.TS) < s.cfg.freshSec*1000
 		switch edge.feed(up) {
 		case "down":
-			s.sendPushAll("마크서버", "서버가 응답하지 않습니다 (다운 감지)")
+			s.sendPushAll("server", "마크서버", "서버가 응답하지 않습니다 (다운 감지)")
 		case "up":
-			s.sendPushAll("마크서버", "서버가 다시 온라인입니다")
+			s.sendPushAll("server", "마크서버", "서버가 다시 온라인입니다")
 		}
 	}
 }
 
 // notifyJoin은 플레이어 접속 푸시를 보냅니다. 재접속 도배를 막기 위해 30초 쿨다운.
+// join 알림이 서버 설정에서 꺼져 있으면 쿨다운을 건드리지 않고 즉시 반환합니다 —
+// 나중에 다시 켰을 때 첫 접속이 쿨다운에 걸려 조용히 삼켜지지 않도록.
 func (s *server) notifyJoin(name string, isFirst bool) {
+	if !s.cfg.pushEventEnabled("join") {
+		return
+	}
 	now := time.Now().Unix()
 	s.pushMu.Lock()
 	last := s.lastJoinPush
@@ -208,8 +257,8 @@ func (s *server) notifyJoin(name string, isFirst bool) {
 	s.lastJoinPush = now
 	s.pushMu.Unlock()
 	if isFirst {
-		s.sendPushAll("마크서버", name+" 님이 처음으로 접속했습니다")
+		s.sendPushAll("join", "마크서버", name+" 님이 처음으로 접속했습니다")
 	} else {
-		s.sendPushAll("마크서버", name+" 님이 접속했습니다")
+		s.sendPushAll("join", "마크서버", name+" 님이 접속했습니다")
 	}
 }
