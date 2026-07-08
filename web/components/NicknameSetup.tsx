@@ -59,7 +59,11 @@ export default function NicknameSetup({
             setNick(e.target.value);
             setError(null);
           }}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
+          onKeyDown={(e) => {
+            // 한글 IME 조합 확정 Enter(keyCode 229)는 무시 — 마지막 글자 유실·조기 제출 방지
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "Enter") submit();
+          }}
           maxLength={16}
           autoFocus
           placeholder="닉네임"

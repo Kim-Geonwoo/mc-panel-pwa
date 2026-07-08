@@ -304,7 +304,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
+            onKeyDown={(e) => {
+              // 한글 IME 조합 확정 Enter(keyCode 229)는 무시 — 마지막 글자 유실·이중 전송 방지
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") send();
+            }}
             onFocus={() => {
               atBottomRef.current = true;
               setTimeout(() => scrollToBottom(false), 300); // 키보드가 안정된 뒤
