@@ -31,7 +31,8 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: api/go.mod
-          cache: false # 표준 라이브러리만 쓰는 모듈이라 캐시할 외부 의존성이 없다
+          cache: true # modernc.org/sqlite 의존성이 생겨 모듈 캐시가 유효하다
+          cache-dependency-path: api/go.sum
       - name: gofmt 검사
         run: |
           unformatted="$(gofmt -l .)"
