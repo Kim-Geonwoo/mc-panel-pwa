@@ -1,11 +1,12 @@
 name: CI
 
-# main에 push/PR마다 모노레포 양쪽을 빌드·검사. 이 잡들이 Renovate 자동병합의 필수 체크가 된다.
+# main·dev에 push/PR마다 모노레포 양쪽을 빌드·검사. 이 잡들이 Renovate 자동병합의 필수 체크가 된다.
+# dev는 활성 작업 브랜치라 push 시점에 먼저 걸러야 빌드 불가 커밋이 PR까지 숨지 않는다.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 # 최소 권한: CI는 읽기만 하면 된다.
 permissions:

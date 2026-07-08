@@ -136,6 +136,44 @@ build.sh  build both halves
 .github/  CI + security workflows, templates, policy
 ```
 
+## Planned Changes
+
+> The following changes are in progress and will be implemented in a separate session alongside the Discord bot.
+
+### 1. Chat architecture — bot-centric → web-centric
+
+Currently the Discord bot is the sole hub for all chat messages. Without the bot, messages sent from the web cannot reach the game.
+
+**After the change:** The Go API becomes the chat hub; the bot handles only the Discord ↔ game bridge. Web chat works independently even without the bot.
+
+| | Current | After |
+| --- | --- | --- |
+| Web → Game | Web → `web_outbox/` → Bot → Game | Web → API → Game (direct) |
+| Hub | Discord bot | Go API server |
+| Without bot | Web messages not delivered | Web chat works independently |
+
+### 2. Chat storage — JSON file → SQLite
+
+Reading the entire `chat.json` on every request becomes linearly slower as messages accumulate.
+
+**After the change:** SQLite with an index on `ts`, so `since`-based polling is a simple indexed lookup. No new external dependencies — Go standard stack is preserved.
+
+```sql
+-- Planned schema
+CREATE TABLE messages (
+    id      INTEGER PRIMARY KEY,
+    ts      INTEGER NOT NULL,
+    source  TEXT NOT NULL,  -- 'game' | 'discord' | 'web'
+    uuid    TEXT,
+    user    TEXT NOT NULL,
+    text    TEXT NOT NULL
+);
+CREATE INDEX idx_messages_ts ON messages(ts);
+```
+
+- `GET /api/chat?since=<ts>` → `SELECT ... WHERE ts > ?` (no full-file parse)
+- Driver: `modernc.org/sqlite` (no CGO required)
+
 ## License
 
 [MIT](LICENSE)

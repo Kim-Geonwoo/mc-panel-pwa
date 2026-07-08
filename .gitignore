@@ -1,7 +1,6 @@
 # Go 빌드 산출물 (build.sh / CI가 다시 만듦)
 api/mc_sv-panel
 api/mc_sv-panel.exe
-# 옛 바이너리 이름 (이름 변경 전)
 api/dc-panel-api
 
 # 로컬 env / 런타임 데이터
