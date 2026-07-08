@@ -62,6 +62,7 @@ type config struct {
 	demo         bool
 
 	timelineRetentionDays int
+	codeRotateSec         int
 }
 
 func getenv(k, def string) string {
@@ -125,6 +126,10 @@ func getenvBool(k string, def bool) bool {
 
 // timelineRetentionDays: 타임라인 접속 이벤트 보존 일수 (기본 90일, DB에서 주기 정리)
 
+// codeRotateSec: 6자리 로그인 코드 로테이션 주기(초). 기본 21600(6시간) — 봇의 기존
+//
+//	주기와 동일. 코드는 API가 auth.json에 기록하고 봇은 표시만 합니다.
+
 // maxPlayers: 서버에 허용되는 최대 플레이어 수 (예: 20) [패널에 표시됩니다]
 
 // freshSec: 서버 상태가 최신인지 판단하는 시간(초) (예: 21)
@@ -163,6 +168,7 @@ func loadConfig() config {
 		demo:         getenvBool("PANEL_DEMO", false),
 
 		timelineRetentionDays: getenvInt("PANEL_TIMELINE_RETENTION_DAYS", 90),
+		codeRotateSec:         getenvInt("PANEL_CODE_ROTATE_SEC", 21600),
 	}
 }
 
@@ -326,6 +332,51 @@ func (s *sessionStore) setNickname(sid, nick string) error {
 	v.Nickname = nick
 	s.persistLocked()
 	return nil
+}
+
+// sessionInfo는 내부 API로 노출하는 세션 요약입니다. sid는 앞 8자만 담습니다.
+type sessionInfo struct {
+	SidPrefix string `json:"sid_prefix"`
+	Nickname  string `json:"nickname"`
+	Created   int64  `json:"created"`
+	Exp       int64  `json:"exp"`
+}
+
+// list는 활성 세션 목록을 생성 시각 순으로 돌려줍니다.
+func (s *sessionStore) list() []sessionInfo {
+	now := time.Now().Unix()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []sessionInfo{}
+	for sid, v := range s.data {
+		if now >= v.Exp {
+			continue
+		}
+		p := sid
+		if len(p) > 8 {
+			p = p[:8]
+		}
+		out = append(out, sessionInfo{SidPrefix: p, Nickname: v.Nickname, Created: v.Created, Exp: v.Exp})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Created < out[j].Created })
+	return out
+}
+
+// revokeByNickname은 닉네임이 일치하는 세션을 모두 삭제하고 삭제 수를 돌려줍니다.
+func (s *sessionStore) revokeByNickname(nick string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for sid, v := range s.data {
+		if v.Nickname == nick {
+			delete(s.data, sid)
+			n++
+		}
+	}
+	if n > 0 {
+		s.persistLocked()
+	}
+	return n
 }
 
 // remove는 세션을 삭제합니다. 로그아웃 시에도 호출됩니다.
@@ -928,15 +979,26 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, 
 		}
 
 		// 데모 모드에서는 in-memory 데모 스토어에 바로 반영해 보낸 메시지가 피드에 나타나게 합니다.
-		// 실제 서버에서는 outbox 디렉토리에 메시지를 저장합니다. (봇이 outbox를 읽어 실제 서버에 메시지를 전송. 해당방법은 수정될 예정입니다. [봇을 중심으로 한 구조에서 웹 서버를 중심으로 한 구조로 변경예정])
 		if s.cfg.demo {
 			demoChatAppend(sess.Nickname, text)
-		} else if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
-			// 전송 실패 처리
-			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
+			s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		// 웹 중심 구조: 저장은 API가 직접 처리해 피드에 즉시 반영되고, 게임·디스코드
+		// 전달만 봇이 outbox를 소비해 처리합니다(순수 브리지). 봇이 없어도 웹 채팅은
+		// 독립적으로 동작합니다.
+		ts := time.Now().UnixMilli()
+		id, err := s.store.insertChatAuto(ts, "web", "", sess.Nickname, text)
+		if err != nil {
+			log.Printf("chat insert failed: %v", err)
+			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+			return
+		}
+		if err := s.enqueueOutbox(sess.Nickname, text); err != nil {
+			// 저장은 성공했으므로 실패해도 게임·디스코드 전달만 지연됩니다 — 로그만 남깁니다
+			log.Printf("outbox enqueue failed (message %d saved): %v", id, err)
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "ts": ts})
 	}
 }
 
@@ -1048,6 +1110,7 @@ func main() {
 		s.store = st
 		defer func() { _ = st.close() }()
 		go s.runImporter(stopImporter)
+		go s.runCodeRotator(stopImporter) // 로그인 코드 생성·로테이션 (auth.json의 단일 작성자)
 	}
 
 	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다
@@ -1062,6 +1125,10 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok\n"))
 		})
+		// 내부 API(봇 전용) — 루프백 리스너에만 등록합니다. internal.go 참고.
+		hmux.HandleFunc("/internal/ingest", s.handleInternalIngest)
+		hmux.HandleFunc("/internal/sessions", s.handleInternalSessions)
+		hmux.HandleFunc("/internal/revoke", s.handleInternalRevoke)
 		hsrv := &http.Server{
 			Addr:              getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099"),
 			Handler:           hmux,
