@@ -24,9 +24,11 @@ jobs:
       run:
         working-directory: api
     steps:
-      # 액션은 태그로 두고 Renovate(helpers:pinGitHubActionDigests)가 SHA로 고정·유지한다.
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      # 액션은 커밋 SHA로 핀 고정(태그 재지정 공급망 공격 방어). Renovate(helpers:pinGitHubActionDigests)가 갱신을 유지한다.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false # 체크아웃 후 git 쓰기 작업이 없으므로 토큰을 남기지 않는다
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: api/go.mod
           cache: false # 표준 라이브러리만 쓰는 모듈이라 캐시할 외부 의존성이 없다
@@ -47,8 +49,10 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
