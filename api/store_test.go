@@ -103,34 +103,49 @@ func TestImporterChatMigrationAndIncrement(t *testing.T) {
 	}
 	writeJSONFile(t, s.cfg.chatJSON, msgs, base)
 
-	// 1회차: 파일 전체가 들어와야 함 (마이그레이션 겸용)
+	// 1회차: 파일 전체가 들어와야 함 (마이그레이션 겸용). DB id는 자동 부여(1,2),
+	// 커서(meta)는 파일 id(144)를 기억한다 — id 권위는 DB, 파일 id는 진행 표시용.
 	mt := s.importChat(0)
 	if mt == 0 {
 		t.Fatal("importChat did not advance mtime")
 	}
 	out, last, _ := s.store.chatSince(0, 200)
-	if len(out) != 2 || last != 144 || s.store.metaInt(metaChatImportID) != 144 {
+	if len(out) != 2 || last != 2 || s.store.metaInt(metaChatImportID) != 144 {
 		t.Fatalf("initial import: len=%d last=%d cursor=%d", len(out), last, s.store.metaInt(metaChatImportID))
+	}
+	if out[0].Text != "one" || out[1].Text != "two" {
+		t.Fatalf("order not preserved: %+v", out)
 	}
 	// 같은 mtime이면 재처리하지 않음
 	if got := s.importChat(mt); got != mt {
 		t.Fatal("unchanged file re-imported")
 	}
-	// 2회차: 새 메시지 1건 추가 (봇 롤링 버퍼처럼 기존 것 포함 전체 재기록)
+	// 2회차: 새 메시지 1건 추가 (봇 롤링 버퍼처럼 기존 것 포함 전체 재기록) — 새 것만 들어옴
 	msgs = append(msgs, chatMsg{ID: 145, TS: 3, Source: "web", User: "c", Text: "three"})
 	writeJSONFile(t, s.cfg.chatJSON, msgs, base.Add(2*time.Second))
 	s.importChat(mt)
 	out, last, _ = s.store.chatSince(0, 200)
-	if len(out) != 3 || last != 145 {
+	if len(out) != 3 || last != 3 {
 		t.Fatalf("incremental import: len=%d last=%d", len(out), last)
 	}
-	// 커서 리셋 감지: 파일 max(1) < 커서(145) → 되감고 계속 (기존 행 유지)
-	writeJSONFile(t, s.cfg.chatJSON, []chatMsg{{ID: 1, TS: 9, Source: "game", User: "r", Text: "reset"}}, base.Add(4*time.Second))
+	// 웹 메시지가 API 직접 저장으로 끼어들어도 (id 4) 다음 임포트와 충돌하지 않음
+	if _, err := s.store.insertChatAuto(5, "web", "", "web-user", "direct"); err != nil {
+		t.Fatal(err)
+	}
+	msgs = append(msgs, chatMsg{ID: 146, TS: 6, Source: "game", User: "d", Text: "four"})
+	writeJSONFile(t, s.cfg.chatJSON, msgs, base.Add(3*time.Second))
 	s.importChat(mt)
 	var cnt int
 	_ = s.store.db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&cnt)
-	if cnt != 4 {
-		t.Fatalf("reset resync: count=%d, want 4", cnt)
+	if cnt != 5 {
+		t.Fatalf("interleaved web+file: count=%d, want 5", cnt)
+	}
+	// 커서 리셋 감지: 파일 max(1) < 커서(146) → 되감고 재임포트 (자동 id라 유실 없음)
+	writeJSONFile(t, s.cfg.chatJSON, []chatMsg{{ID: 1, TS: 9, Source: "game", User: "r", Text: "reset"}}, base.Add(4*time.Second))
+	s.importChat(mt)
+	_ = s.store.db.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&cnt)
+	if cnt != 6 {
+		t.Fatalf("reset resync: count=%d, want 6", cnt)
 	}
 }
 
@@ -146,6 +161,7 @@ func TestImporterTimeline(t *testing.T) {
 	if err != nil || len(got) != 2 || !got[0].IsFirst || got[1].Event != "leave" {
 		t.Fatalf("timeline import: %+v err=%v", got, err)
 	}
+	// 커서는 파일 id 기준(2), DB id는 자동 부여
 	if s.store.metaInt(metaTimelineImportID) != 2 {
 		t.Fatalf("cursor=%d", s.store.metaInt(metaTimelineImportID))
 	}
