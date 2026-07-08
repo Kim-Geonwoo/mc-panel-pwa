@@ -55,6 +55,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatErr, setChatErr] = useState<string | null>(null);
+  const [connLost, setConnLost] = useState(false);
   const [tpsOpen, setTpsOpen] = useState(false);
   const [playersOpen, setPlayersOpen] = useState(false);
   const feedRef = useRef<HTMLDivElement>(null);
@@ -116,6 +117,18 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     });
   }
 
+  // 브라우저 오프라인 신호 — 폴링 실패를 기다리지 않고 즉시 배너 반영
+  useEffect(() => {
+    const on = () => setConnLost(false);
+    const off = () => setConnLost(true);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+
   // 낙관적 전송 표시에 쓸 내 닉네임 (실패해도 무해 — 폴백 표기)
   useEffect(() => {
     getMe()
@@ -160,8 +173,10 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             }
           }
         }
+        if (alive) setConnLost(false);
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
+        if (alive) setConnLost(true); // 네트워크 단절 등 — 배너 표시, 폴링은 계속 재시도
       }
       if (alive) t = setTimeout(tick, CHAT_MS);
     };
@@ -260,6 +275,13 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
       </header>
+
+      {/* 연결 끊김 배너 — 오프라인·서버 무응답 공통 */}
+      {connLost && (
+        <div className="mx-5 mb-2 shrink-0 rounded-xl border border-line bg-card px-3 py-1.5 text-center text-xs font-medium text-danger">
+          연결이 끊겼습니다 · 자동 재연결 중
+        </div>
+      )}
 
       {/* 고정 상태 카드 */}
       <div className="shrink-0 px-5">
