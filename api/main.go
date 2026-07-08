@@ -920,6 +920,32 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, 
 	// GET 요청이면 since 이후의 메시지를 반환, POST 요청이면 새 메시지를 받아 outbox에 저장
 	switch r.Method {
 	case http.MethodGet:
+		// before 커서: 과거 메시지 로딩(무한 스크롤). since 폴링과 별개의 조회 방향입니다.
+		if b := r.URL.Query().Get("before"); b != "" {
+			before, _ := strconv.ParseInt(b, 10, 64)
+			var out []chatMsg
+			if s.cfg.demo {
+				all := demoChat()
+				for _, m := range all {
+					if m.ID < before {
+						out = append(out, m)
+					}
+				}
+				if out == nil {
+					out = []chatMsg{}
+				}
+			} else {
+				var err error
+				out, err = s.store.chatBefore(before, 50)
+				if err != nil {
+					log.Printf("chat before query failed: %v", err)
+					s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+					return
+				}
+			}
+			s.writeJSON(w, http.StatusOK, map[string]any{"messages": out})
+			return
+		}
 		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 		// 데모 모드는 in-memory 시드 스토어에서 필터링합니다.
 		if s.cfg.demo {

@@ -150,6 +150,33 @@ func (st *store) chatSince(since int64, limit int) ([]chatMsg, int64, error) {
 	return out, last, nil
 }
 
+// chatBefore는 id < before인 과거 메시지 중 최신 limit개를 오름차순으로 돌려줍니다.
+// 무한 스크롤(과거 로딩)용 커서입니다.
+func (st *store) chatBefore(before int64, limit int) ([]chatMsg, error) {
+	rows, err := st.db.Query(`SELECT id, ts, source, uuid, user, text FROM messages
+		WHERE id < ? ORDER BY id DESC LIMIT ?`, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var desc []chatMsg
+	for rows.Next() {
+		var m chatMsg
+		if err := rows.Scan(&m.ID, &m.TS, &m.Source, &m.UUID, &m.User, &m.Text); err != nil {
+			return nil, err
+		}
+		desc = append(desc, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]chatMsg, len(desc))
+	for i, m := range desc {
+		out[len(desc)-1-i] = m
+	}
+	return out, nil
+}
+
 // insertTimeline은 봇이 부여한 id를 보존한 채 접속 이벤트를 저장합니다.
 func (st *store) insertTimeline(e timelineEntry) error {
 	first := 0

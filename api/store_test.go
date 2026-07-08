@@ -48,6 +48,14 @@ func TestStoreChatCursor(t *testing.T) {
 	if len(out) != 5 || out[0].ID != 6 || out[4].ID != 10 || last != 10 {
 		t.Fatalf("window: %+v last=%d", out, last)
 	}
+	// before 커서: id < 6 중 최신 3개(3,4,5)를 오름차순으로
+	older, err := st.chatBefore(6, 3)
+	if err != nil || len(older) != 3 || older[0].ID != 3 || older[2].ID != 5 {
+		t.Fatalf("before window: %+v err=%v", older, err)
+	}
+	if got, _ := st.chatBefore(1, 10); len(got) != 0 {
+		t.Fatalf("before oldest should be empty: %+v", got)
+	}
 	// 같은 id 재삽입은 무시 (봇 파일 재읽기 중복 방지)
 	if err := st.insertChat(chatMsg{ID: 5, TS: 9999, Source: "web", User: "dup", Text: "dup"}); err != nil {
 		t.Fatal(err)
