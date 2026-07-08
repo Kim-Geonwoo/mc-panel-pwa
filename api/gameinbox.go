@@ -11,6 +11,8 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -29,9 +31,15 @@ type gameInboxFile struct {
 
 const gameInboxCap = 50
 
+// gameInboxMu는 큐 파일의 read-modify-write 전체를 직렬화합니다. 동시 웹 포스트가
+// 겹치면 last-writer-wins로 엔트리를 잃고 고정 .tmp 경로에서 경쟁하기 때문입니다.
+var gameInboxMu sync.Mutex
+
 // appendGameInbox는 메시지를 큐 파일에 추가합니다(read-modify-write + 원자적 rename).
 // 파일 손상은 빈 큐로 간주하고 새로 시작합니다 — 전달은 best-effort입니다.
 func (s *server) appendGameInbox(id int64, user, text string) error {
+	gameInboxMu.Lock()
+	defer gameInboxMu.Unlock()
 	var f gameInboxFile
 	_ = readJSON(s.cfg.gameInbox, &f) // 없거나 깨져 있으면 빈 큐
 	f.Messages = append(f.Messages, gameInboxEntry{ID: id, Ts: time.Now().UnixMilli(), User: user, Text: text})
@@ -42,9 +50,24 @@ func (s *server) appendGameInbox(id int64, user, text string) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.cfg.gameInbox + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	// 임시 파일은 쓰기마다 고유해야 tmp 경로 경쟁이 없습니다. CreateTemp는 0600으로 만듭니다.
+	tmp, err := os.CreateTemp(filepath.Dir(s.cfg.gameInbox), ".wtg-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.cfg.gameInbox)
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, s.cfg.gameInbox); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
