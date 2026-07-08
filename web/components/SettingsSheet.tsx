@@ -117,16 +117,28 @@ export default function SettingsSheet({
   }
 
   // 종류 체크 변경 — 구독 중이면 새 topics로 재전송(upsert), 미구독이면 로컬만 저장.
+  // 구독 중 전부 해제는 마스터 해지로 처리한다: 빈 topics를 서버에 보내면 백엔드
+  // normalizeTopics가 "활성 전체"로 폴백해 UI(전부 해제)와 서버(전부 수신)가 어긋난다.
   async function toggleKind(kind: string) {
-    const next = topics.includes(kind)
+    if (!config) return;
+    const raw = topics.includes(kind)
       ? topics.filter((t) => t !== kind)
       : [...topics, kind];
+    // 서버 제공 종류와 교집합 — stale localStorage 항목이 서버로 가지 않게(마스터 경로와 대칭)
+    const next = raw.filter((t) => config.events.includes(t));
     persistTopics(next);
     if (!subscribed) return;
     try {
       const reg = await navigator.serviceWorker.ready;
       const cur = await reg.pushManager.getSubscription();
-      if (cur) await subscribePush(cur.toJSON(), next);
+      if (!cur) return;
+      if (next.length === 0) {
+        await unsubscribePush(cur.endpoint);
+        await cur.unsubscribe();
+        setSubscribed(false);
+      } else {
+        await subscribePush(cur.toJSON(), next);
+      }
     } catch {
       /* 조용히 */
     }
