@@ -70,6 +70,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [sending, setSending] = useState(false);
   const [chatErr, setChatErr] = useState<string | null>(null);
   const [connLost, setConnLost] = useState(false);
+  const [chatLoaded, setChatLoaded] = useState(false); // 첫 채팅 응답 도착 여부(스켈레톤 해제)
   const [tpsOpen, setTpsOpen] = useState(false);
   const [playersOpen, setPlayersOpen] = useState(false);
   const [profile, setProfile] = useState<Player | null>(null);
@@ -222,9 +223,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           }
         }
         if (alive) setConnLost(false);
+        if (alive) setChatLoaded(true); // 첫 응답 도착 — 스켈레톤 해제
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
         if (alive) setConnLost(true); // 네트워크 단절 등 — 배너 표시, 폴링은 계속 재시도
+        if (alive) setChatLoaded(true); // 실패해도 스켈레톤 무한 방지
       }
       if (alive) t = setTimeout(tick, CHAT_MS);
     };
@@ -398,7 +401,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                         key={p.uuid || p.name}
                         onClick={() => setProfile(p)}
                         aria-label={`${p.name} 프로필 보기`}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-card2"
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-card2"
                       >
                         <Avatar uuid={p.uuid} name={p.name} px={24} className="rounded" />
                         <span className="text-sm">{p.name}</span>
@@ -421,7 +424,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {/* 탭 */}
-      <div role="tablist" aria-label="패널 탭" className="flex shrink-0 gap-1 px-4 pt-1">
+      <div role="tablist" aria-label="패널 탭" className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
         {(["chat", "perf", "timeline"] as const)
           .filter((tb) => tb === "chat" || (tb === "perf" ? tabPrefs.perf : tabPrefs.timeline))
           .map((tb) => (
@@ -431,7 +434,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             aria-selected={tab === tb}
             onClick={() => setTab(tb)}
             className={[
-              "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+              "flex-1 min-h-[44px] rounded-xl text-sm font-medium transition-colors",
               tab === tb ? "bg-card text-fg shadow-card" : "text-muted hover:text-fg",
             ].join(" ")}
           >
@@ -453,22 +456,36 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       <div
         ref={feedRef}
         onScroll={onFeedScroll}
-        className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-2 [-webkit-overflow-scrolling:touch]"
+        className="mt-2 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-2 [-webkit-overflow-scrolling:touch]"
       >
         {loadingOlder && (
           <div className="py-1 text-center text-[11px] text-muted">이전 메시지 불러오는 중…</div>
         )}
         {msgs.length === 0 && localMsgs.length === 0 ? (
-          <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
+          !chatLoaded ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <div className="h-8 w-8 shrink-0 rounded bg-line motion-safe:animate-pulse" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-3 w-24 rounded bg-line motion-safe:animate-pulse" />
+                    <div className={["h-3 rounded bg-line motion-safe:animate-pulse", i % 2 ? "w-40" : "w-56"].join(" ")} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
+          )
         ) : (
-          msgs.map((m) => {
+          msgs.map((m, i) => {
             const meta = SRC[m.source] ?? SRC.web;
             return (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex items-start gap-2.5"
+                className={["flex items-start gap-2.5", i > 0 && msgs[i - 1].source !== m.source ? "mt-1.5" : ""].filter(Boolean).join(" ")}
               >
                 {m.source === "game" ? (
                   <Avatar uuid={m.uuid} name={m.user} px={32} className="mt-0.5 rounded" />
@@ -480,12 +497,12 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-semibold">{m.user}</span>
-                    <span className={["rounded px-1.5 py-0.5 text-[10px] font-medium", meta.cls].join(" ")}>
+                    <span className={["rounded px-1.5 py-0.5 text-[11px] font-medium", meta.cls].join(" ")}>
                       {meta.label}
                     </span>
-                    <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted">{hhmm(m.ts)}</span>
+                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted">{hhmm(m.ts)}</span>
                   </div>
-                  <div className="whitespace-pre-wrap break-words text-sm text-fg">{m.text}</div>
+                  <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{m.text}</div>
                 </div>
               </motion.div>
             );
@@ -505,12 +522,12 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-semibold">{nick || "나"}</span>
-                <span className="rounded bg-card2 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">웹</span>
-                <span className="ml-auto shrink-0 text-[10px] text-muted">
+                <span className="rounded bg-card2 px-1.5 py-0.5 text-[11px] font-medium text-amber-500">웹</span>
+                <span className="ml-auto shrink-0 text-[11px] text-muted">
                   {m.status === "pending" ? "전송 중…" : ""}
                 </span>
               </div>
-              <div className="whitespace-pre-wrap break-words text-sm text-fg">{m.text}</div>
+              <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{m.text}</div>
               {m.status === "failed" && (
                 <button
                   onClick={() => send(m)}
@@ -565,10 +582,10 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           <button
             onClick={() => send()}
             disabled={sending || !text.trim()}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
             aria-label="전송"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 11.5 21 3l-8.5 18-2.2-7.3L3 11.5Z" />
             </svg>
           </button>

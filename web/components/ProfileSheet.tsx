@@ -105,9 +105,9 @@ export default function ProfileSheet({
 
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-line bg-card2 p-2.5 text-center">
+    <div className="rounded-xl border border-line bg-card2 p-3 text-center">
       <div className="text-sm font-bold tabular-nums text-fg">{value}</div>
-      <div className="text-[10px] text-muted">{label}</div>
+      <div className="text-[11px] text-muted">{label}</div>
     </div>
   );
 }

@@ -169,7 +169,7 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
     return (
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="flex items-center gap-3 rounded-2xl border border-line bg-card2 p-3">
+          <div key={i} className="flex items-center gap-3 rounded-2xl border border-line bg-card2 p-4">
             <div className="h-9 w-9 animate-pulse rounded-xl bg-line" />
             <div className="flex-1 space-y-1.5">
               <div className="h-3 w-24 animate-pulse rounded bg-line" />
@@ -192,7 +192,7 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {/* L0 지금 온라인 */}
-      <div className="rounded-2xl border border-line bg-card p-3 shadow-card">
+      <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
         <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted">
           <span className={["relative inline-flex h-2 w-2 rounded-full", online.length ? "bg-accent" : "bg-line"].join(" ")}>
             {online.length > 0 && <span className="absolute inset-0 animate-ping rounded-full bg-accent opacity-60" />}
@@ -342,7 +342,7 @@ function UserDayCard({
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-fg">{name}</span>
             {isFirst && (
-              <span className="inline-flex items-center gap-0.5 rounded-full border border-line px-1.5 text-[10px] text-accent">
+              <span className="inline-flex items-center gap-0.5 rounded-full border border-line px-1.5 text-[11px] text-accent">
                 <StarIcon />첫 접속
               </span>
             )}
@@ -386,7 +386,7 @@ function SessionRow({ s, now }: { s: Session; now: number }) {
     endTxt = "종료 미상";
   }
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex items-center gap-2 text-sm leading-relaxed">
       <span
         className={[
           "relative inline-flex h-2 w-2 shrink-0 rounded-full",
