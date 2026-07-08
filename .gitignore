@@ -1,6 +1,7 @@
 # Go 빌드 산출물 (build.sh / CI가 다시 만듦)
 api/mc_sv-panel
 api/mc_sv-panel.exe
+api/dc-panel-api
 
 # 로컬 env / 런타임 데이터
 .env
