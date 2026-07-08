@@ -34,6 +34,11 @@ func newTestServer(t *testing.T) (*server, string) {
 		freshSec:     21,
 		sessionSec:   3600,
 	}
+	st, err := openStore(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.close() })
 	s := &server{
 		cfg:           cfg,
 		sessions:      newSessionStore(cfg.sessionsJSON, cfg.revokedJSON, cfg.sessionSec),
@@ -41,6 +46,7 @@ func newTestServer(t *testing.T) (*server, string) {
 		loginGlobalRL: newRateLimiter(600, 120),
 		chatRL:        newRateLimiter(5, 3),
 		alert:         newAlerter(""),
+		store:         st,
 	}
 	return s, dir
 }
