@@ -55,6 +55,7 @@ type config struct {
 	staticDir    string
 	dbPath       string
 	gameInbox    string
+	vapidJSON    string
 	maxPlayers   int
 	freshSec     float64
 	sessionSec   int64
@@ -129,6 +130,8 @@ func getenvBool(k string, def bool) bool {
 //
 //	서버 측 KubeJS 스크립트가 소비합니다. 봇 없이도 웹→게임 전달이 동작합니다.
 
+// vapidJSON: 웹 푸시 VAPID 키 저장 파일 (기본 <bridge>/vapid.json, 자동 생성·0600)
+
 // timelineRetentionDays: 타임라인 접속 이벤트 보존 일수 (기본 90일, DB에서 주기 정리)
 
 // codeRotateSec: 6자리 로그인 코드 로테이션 주기(초). 기본 21600(6시간) — 봇의 기존
@@ -166,6 +169,7 @@ func loadConfig() config {
 		staticDir:    getenv("PANEL_STATIC_DIR", "./web/out"),
 		dbPath:       getenv("PANEL_DB", filepath.Join(br, "panel.db")),
 		gameInbox:    getenv("PANEL_GAME_INBOX", filepath.Join(mc, "web_to_game.json")),
+		vapidJSON:    getenv("PANEL_VAPID_JSON", filepath.Join(br, "vapid.json")),
 		maxPlayers:   getenvInt("PANEL_MAX_PLAYERS", 20),
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
