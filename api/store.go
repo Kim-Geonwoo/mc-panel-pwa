@@ -64,6 +64,12 @@ CREATE INDEX IF NOT EXISTS idx_timeline_ts ON timeline(ts);
 CREATE TABLE IF NOT EXISTS meta (
 	key   TEXT PRIMARY KEY,
 	value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS push_subs (
+	endpoint TEXT PRIMARY KEY,
+	p256dh   TEXT NOT NULL,
+	auth     TEXT NOT NULL,
+	created  INTEGER NOT NULL
 );`
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
@@ -231,4 +237,41 @@ func (st *store) pruneTimeline(beforeTs int64) (int64, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+type pushSub struct {
+	Endpoint string
+	P256dh   string
+	Auth     string
+}
+
+// upsertPushSub는 구독을 저장합니다. 같은 endpoint 재등록은 키를 갱신합니다.
+func (st *store) upsertPushSub(endpoint, p256dh, auth string) error {
+	_, err := st.db.Exec(`INSERT INTO push_subs(endpoint, p256dh, auth, created)
+		VALUES(?, ?, ?, unixepoch())
+		ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth`,
+		endpoint, p256dh, auth)
+	return err
+}
+
+func (st *store) deletePushSub(endpoint string) error {
+	_, err := st.db.Exec(`DELETE FROM push_subs WHERE endpoint = ?`, endpoint)
+	return err
+}
+
+func (st *store) pushSubs() ([]pushSub, error) {
+	rows, err := st.db.Query(`SELECT endpoint, p256dh, auth FROM push_subs`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []pushSub
+	for rows.Next() {
+		var p pushSub
+		if err := rows.Scan(&p.Endpoint, &p.P256dh, &p.Auth); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

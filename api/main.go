@@ -573,6 +573,7 @@ type server struct {
 	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
 	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	store         *store          // 채팅·타임라인 SQLite 저장소 (데모 모드에서는 nil)
+	vapid         vapidKeys       // 웹 푸시 VAPID 키 (데모 모드·로드 실패 시 빈 값 → 푸시 비활성)
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
@@ -1149,6 +1150,11 @@ func main() {
 		}
 		s.store = st
 		defer func() { _ = st.close() }()
+		if k, err := loadOrCreateVAPID(cfg.vapidJSON); err != nil {
+			log.Printf("vapid load failed (push disabled): %v", err)
+		} else {
+			s.vapid = k
+		}
 		go s.runImporter(stopImporter)
 		go s.runCodeRotator(stopImporter) // 로그인 코드 생성·로테이션 (auth.json의 단일 작성자)
 	}
@@ -1207,6 +1213,9 @@ func main() {
 	mux.HandleFunc("/api/perf", s.apiAuthed("GET", s.handlePerf))
 	mux.HandleFunc("/api/chat", s.apiAuthed("GET,POST", s.handleChat))
 	mux.HandleFunc("/api/timeline", s.apiAuthed("GET", s.handleTimeline))
+	mux.HandleFunc("/api/push/key", s.apiAuthed("GET", s.handlePushKey))
+	mux.HandleFunc("/api/push/subscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushSubscribe(w, r) }))
+	mux.HandleFunc("/api/push/unsubscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushUnsubscribe(w, r) }))
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작

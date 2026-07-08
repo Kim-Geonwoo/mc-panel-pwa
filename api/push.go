@@ -8,6 +8,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net/http"
 	"os"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -42,4 +43,60 @@ func loadOrCreateVAPID(path string) (vapidKeys, error) {
 	}
 	log.Printf("vapid keys generated (%s)", path)
 	return k, nil
+}
+
+// handlePushKey는 브라우저 구독에 필요한 VAPID 공개키를 돌려줍니다.
+func (s *server) handlePushKey(w http.ResponseWriter, r *http.Request, _ string, _ session) {
+	if s.vapid.Public == "" {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "push_unavailable"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]string{"key": s.vapid.Public})
+}
+
+// handlePushSubscribe는 브라우저 PushSubscription을 저장합니다. (인증 필수 — apiAuthed 체인)
+func (s *server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no_store"})
+		return
+	}
+	var body struct {
+		Endpoint string `json:"endpoint"`
+		Keys     struct {
+			P256dh string `json:"p256dh"`
+			Auth   string `json:"auth"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil ||
+		body.Endpoint == "" || body.Keys.P256dh == "" || body.Keys.Auth == "" {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
+		return
+	}
+	if err := s.store.upsertPushSub(body.Endpoint, body.Keys.P256dh, body.Keys.Auth); err != nil {
+		log.Printf("push subscribe failed: %v", err)
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handlePushUnsubscribe는 구독을 제거합니다.
+func (s *server) handlePushUnsubscribe(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no_store"})
+		return
+	}
+	var body struct {
+		Endpoint string `json:"endpoint"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || body.Endpoint == "" {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
+		return
+	}
+	if err := s.store.deletePushSub(body.Endpoint); err != nil {
+		log.Printf("push unsubscribe failed: %v", err)
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
