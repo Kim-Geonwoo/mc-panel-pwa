@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -43,6 +44,10 @@ func (s *server) appendGameInbox(id int64, user, text string) error {
 	var f gameInboxFile
 	_ = readJSON(s.cfg.gameInbox, &f) // 없거나 깨져 있으면 빈 큐
 	f.Messages = append(f.Messages, gameInboxEntry{ID: id, Ts: time.Now().UnixMilli(), User: user, Text: text})
+	// id 오름차순 유지 — KubeJS 소비자(web_to_game.js)가 lastId 이하를 건너뛰므로,
+	// 동시 포스트로 획득 순서가 뒤바뀌어도 낮은 id가 뒤에 와서 게임 표시에서 누락되지
+	// 않도록 정렬한다. 이러면 "위치 기준 최근 50개"도 "최대 id 50개"와 일치한다.
+	sort.Slice(f.Messages, func(i, j int) bool { return f.Messages[i].ID < f.Messages[j].ID })
 	if len(f.Messages) > gameInboxCap {
 		f.Messages = f.Messages[len(f.Messages)-gameInboxCap:]
 	}
