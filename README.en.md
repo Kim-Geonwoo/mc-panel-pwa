@@ -167,7 +167,7 @@ Previously the Discord bot was the hub for all chat, and even login codes and se
 
 - The bot is demoted to a pure bridge: it forwards game/Discord events to the API via loopback `POST /internal/ingest` (falling back to the legacy files on failure — the importer picks those up) and handles delivery/display only.
 - There is a single id authority — the DB. The importer uses file ids only as a progress cursor and assigns fresh DB ids.
-- Remaining follow-up: delivering **web → game without the bot** requires a KubeJS file-queue channel. Deliberately deferred so full-privilege RCON credentials never move into the internet-exposed API.
+- ✅ Web → game delivery now works without the bot too: the API writes a queue file (`PANEL_GAME_INBOX`, default `<mc>/web_to_game.json`) and a server-side KubeJS script polls it every second and tellraws — RCON credentials still never touch the API. The bot's outbox consumption is reduced to Discord mirroring only.
 
 ### 2. Chat storage — JSON file → SQLite ✅ (done)
 
