@@ -26,7 +26,7 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // maximumScale을 강제하지 않는다 — 핀치 줌 차단은 저시력 사용자 접근성 위반(WCAG 1.4.4)
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
 };

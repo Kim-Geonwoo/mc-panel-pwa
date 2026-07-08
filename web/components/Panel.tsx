@@ -334,6 +334,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               onClick={() => setPlayersOpen((v) => !v)}
               className="ml-auto text-right"
               aria-label="접속자 목록"
+              aria-expanded={playersOpen}
             >
               <div className="text-2xl font-bold tabular-nums text-accent">
                 {up ? status?.count ?? 0 : 0}
@@ -382,10 +383,12 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {/* 탭 */}
-      <div className="flex shrink-0 gap-1 px-4 pt-1">
+      <div role="tablist" aria-label="패널 탭" className="flex shrink-0 gap-1 px-4 pt-1">
         {(["chat", "perf", "timeline"] as const).map((tb) => (
           <button
             key={tb}
+            role="tab"
+            aria-selected={tab === tb}
             onClick={() => setTab(tb)}
             className={[
               "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
@@ -516,6 +519,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               setTimeout(() => scrollToBottom(false), 300); // 키보드가 안정된 뒤
             }}
             maxLength={256}
+            aria-label="채팅 메시지 입력"
             placeholder="메시지를 입력하세요"
             className="min-w-0 flex-1 rounded-full border border-line bg-card px-4 py-2.5 text-sm outline-none focus:border-accent"
           />
