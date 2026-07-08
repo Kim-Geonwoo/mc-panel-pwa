@@ -20,6 +20,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -28,11 +29,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -178,8 +181,14 @@ func newSessionStore(path, revokedPath string, ttl int64) *sessionStore {
 func (s *sessionStore) persistLocked() {
 	tmp := s.path + ".tmp"
 	b, _ := json.MarshalIndent(s.data, "", "  ")
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		_ = os.Rename(tmp, s.path)
+	// 디스크 가득참·권한 문제 같은 IO 실패를 조용히 삼키면 재시작 후 세션이 증발한
+	// 원인을 찾을 수 없으므로 로그를 남깁니다.
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		log.Printf("session persist failed (write): %v", err)
+		return
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		log.Printf("session persist failed (rename): %v", err)
 	}
 }
 
@@ -1054,9 +1063,22 @@ func main() {
 	if cfg.demo {
 		log.Printf("mc_sv-panel DEMO MODE — bridge files ignored, sample data served (login code %q)", demoLoginCode)
 	}
+	// 종료 시그널(SIGINT/SIGTERM)을 받으면 진행 중인 요청을 마무리하고 내려갑니다 —
+	// systemd 재시작 시 세션 저장 같은 쓰기 도중 프로세스가 끊기지 않도록.
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		log.Printf("shutdown signal received — draining connections")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
 	// 메인 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
 	log.Printf("mc_sv-panel listening on %s (static=%s)", cfg.listen, cfg.staticDir)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+	log.Printf("mc_sv-panel shutdown complete")
 }
