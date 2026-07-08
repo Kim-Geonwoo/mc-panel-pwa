@@ -238,8 +238,3 @@ export async function fetchTimeline(): Promise<Timeline> {
   if (!r.ok) throw new Error("timeline_failed");
   return (await r.json()) as Timeline;
 }
-
-export function avatarUrl(uuid: string, name: string): string {
-  const key = uuid || name || "steve";
-  return `https://mc-heads.net/avatar/${key}/64`;
-}

@@ -1164,7 +1164,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Next.js 정적 빌드 결과물은 작은 인라인 부트스트랩·테마 스크립트와 인라인 스타일을 쓰기 때문에,
 		// script와 style에는 'unsafe-inline'을 허용해야 합니다. 그 밖의 출처는 모두 막아 둡니다.
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' https://mc-heads.net data:; "+ // mc-heads.net는 플레이어 스킨·두상 이미지를 가져오는 곳입니다. data:는 favicon.ico를 위해 허용합니다.
+			"default-src 'self'; img-src 'self' https://mc-heads.net https://crafthead.net https://api.mineatar.io data:; "+ // 플레이어 두상 이미지를 가져오는 곳(mc-heads.net 1순위, crafthead.net·api.mineatar.io는 폴백). data:는 favicon.ico를 위해 허용합니다.
 				"style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "+
 				"connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'")
 		next.ServeHTTP(w, r)

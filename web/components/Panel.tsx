@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  avatarUrl,
   ChatMessage,
   fetchChat,
   fetchChatBefore,
@@ -13,6 +12,7 @@ import {
   Status,
   UnauthorizedError,
 } from "../lib/api";
+import Avatar from "./Avatar";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
 import ProfileSheet from "./ProfileSheet";
@@ -400,8 +400,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                         aria-label={`${p.name} 프로필 보기`}
                         className="flex w-full items-center gap-2.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-card2"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={avatarUrl(p.uuid, p.name)} alt="" width={24} height={24} className="rounded" />
+                        <Avatar uuid={p.uuid} name={p.name} px={24} className="rounded" />
                         <span className="text-sm">{p.name}</span>
                         <span className="ml-auto text-xs tabular-nums text-muted">
                           {p.ping >= 0 ? `${p.ping}ms` : "—"}
@@ -472,8 +471,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                 className="flex items-start gap-2.5"
               >
                 {m.source === "game" ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={avatarUrl(m.uuid, m.user)} alt="" width={32} height={32} className="mt-0.5 rounded" />
+                  <Avatar uuid={m.uuid} name={m.user} px={32} className="mt-0.5 rounded" />
                 ) : (
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded bg-card2 text-sm font-bold text-muted">
                     {(m.user || "?").charAt(0).toUpperCase()}
