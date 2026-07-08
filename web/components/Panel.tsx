@@ -421,7 +421,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {/* 탭 */}
-      <div role="tablist" aria-label="패널 탭" className="flex shrink-0 gap-1 px-4 pt-1">
+      <div role="tablist" aria-label="패널 탭" className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
         {(["chat", "perf", "timeline"] as const)
           .filter((tb) => tb === "chat" || (tb === "perf" ? tabPrefs.perf : tabPrefs.timeline))
           .map((tb) => (
@@ -431,7 +431,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             aria-selected={tab === tb}
             onClick={() => setTab(tb)}
             className={[
-              "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+              "flex-1 min-h-[44px] rounded-xl text-sm font-medium transition-colors",
               tab === tb ? "bg-card text-fg shadow-card" : "text-muted hover:text-fg",
             ].join(" ")}
           >
