@@ -7,6 +7,7 @@ import {
   ChatMessage,
   fetchChat,
   fetchStatus,
+  getMe,
   logout,
   sendChat,
   Status,
@@ -31,10 +32,24 @@ function hhmm(ts: number) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// 전송 중/실패 상태의 내 메시지(서버 확정 전) — 확정되면 msgs로 옮겨진다
+type LocalMsg = { key: number; text: string; status: "pending" | "failed" };
+
+// 확정 메시지 병합: id 기준 중복 제거 + 정렬. 낙관적 확정과 폴링이 같은 메시지를
+// 각각 가져와도 한 번만 표시된다.
+function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  if (!incoming.length) return prev;
+  const ids = new Set(incoming.map((m) => m.id));
+  const kept = prev.filter((m) => !ids.has(m.id));
+  return [...kept, ...incoming].sort((a, b) => a.id - b.id).slice(-3000);
+}
+
 export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
   const [status, setStatus] = useState<Status | null>(null);
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
+  const [localMsgs, setLocalMsgs] = useState<LocalMsg[]>([]);
+  const [nick, setNick] = useState("");
   const sinceRef = useRef(0);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -55,6 +70,13 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
     });
   }
+
+  // 낙관적 전송 표시에 쓸 내 닉네임 (실패해도 무해 — 폴백 표기)
+  useEffect(() => {
+    getMe()
+      .then((m) => setNick(m.nickname))
+      .catch(() => {});
+  }, []);
 
   // 접속현황 폴링 — 1분에 한 번
   useEffect(() => {
@@ -85,7 +107,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         const r = await fetchChat(sinceRef.current);
         if (alive && r.last_id > sinceRef.current) {
           sinceRef.current = r.last_id;
-          if (r.messages.length) setMsgs((p) => [...p, ...r.messages].slice(-300));
+          if (r.messages.length) setMsgs((p) => mergeMsgs(p, r.messages));
         }
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
@@ -110,26 +132,45 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     }
   }, [msgs]);
 
-  async function send() {
-    const t = text.trim();
+  // 낙관적 전송: 보내자마자 피드에 '전송 중'으로 표시하고, 서버가 id를 확정하면
+  // 확정 메시지로 승격한다. 실패하면 '실패' 상태로 남겨 재시도할 수 있게 한다.
+  // 폴링 커서(sinceRef)는 건드리지 않는다 — 내 메시지와 남 메시지 사이의 id를
+  // 건너뛰지 않도록. 중복은 mergeMsgs가 id로 걸러 준다.
+  async function send(retry?: LocalMsg) {
+    const t = retry ? retry.text : text.trim();
     if (!t || sending) return;
+    const key = retry ? retry.key : Date.now();
     atBottomRef.current = true; // 내가 보낸 메시지로 이동
     setSending(true);
     setChatErr(null);
-    try {
-      await sendChat(t);
+    if (retry) {
+      setLocalMsgs((p) => p.map((m) => (m.key === key ? { ...m, status: "pending" } : m)));
+    } else {
+      setLocalMsgs((p) => [...p, { key, text: t, status: "pending" }]);
       setText("");
-      const r = await fetchChat(sinceRef.current);
-      if (r.last_id > sinceRef.current) {
-        sinceRef.current = r.last_id;
-        if (r.messages.length) setMsgs((p) => [...p, ...r.messages].slice(-300));
+    }
+    try {
+      const r = await sendChat(t);
+      setLocalMsgs((p) => p.filter((m) => m.key !== key));
+      if (r.id && r.ts) {
+        setMsgs((p) =>
+          mergeMsgs(p, [{ id: r.id!, ts: r.ts!, source: "web", user: nick || "나", uuid: "", text: t }]),
+        );
+      } else {
+        // 데모 등 id 미반환 응답 — 즉시 재폴링으로 반영
+        const rr = await fetchChat(sinceRef.current);
+        if (rr.last_id > sinceRef.current) {
+          sinceRef.current = rr.last_id;
+          if (rr.messages.length) setMsgs((p) => mergeMsgs(p, rr.messages));
+        }
       }
     } catch (e) {
       if (e instanceof UnauthorizedError) return onLogout();
+      setLocalMsgs((p) => p.map((m) => (m.key === key ? { ...m, status: "failed" } : m)));
       setChatErr(
         e instanceof Error && e.message === "slow_down"
           ? "너무 빨라요. 잠시 후 다시 보내세요."
-          : "전송 실패",
+          : "전송 실패 — 메시지를 눌러 재시도하세요.",
       );
     } finally {
       setSending(false);
@@ -261,7 +302,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         onScroll={onFeedScroll}
         className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-2 [-webkit-overflow-scrolling:touch]"
       >
-        {msgs.length === 0 ? (
+        {msgs.length === 0 && localMsgs.length === 0 ? (
           <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
         ) : (
           msgs.map((m) => {
@@ -295,6 +336,38 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             );
           })
         )}
+        {/* 전송 중/실패한 내 메시지 — 확정 전까지 피드 맨 아래에 표시 */}
+        {localMsgs.map((m) => (
+          <motion.div
+            key={`local-${m.key}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={["flex items-start gap-2.5", m.status === "pending" ? "opacity-60" : ""].join(" ")}
+          >
+            <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded bg-card2 text-sm font-bold text-muted">
+              {(nick || "나").charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-semibold">{nick || "나"}</span>
+                <span className="rounded bg-card2 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">웹</span>
+                <span className="ml-auto shrink-0 text-[10px] text-muted">
+                  {m.status === "pending" ? "전송 중…" : ""}
+                </span>
+              </div>
+              <div className="whitespace-pre-wrap break-words text-sm text-fg">{m.text}</div>
+              {m.status === "failed" && (
+                <button
+                  onClick={() => send(m)}
+                  className="mt-0.5 flex items-center gap-1 text-xs font-medium text-danger"
+                >
+                  <RetryIcon />
+                  전송 실패 · 재시도
+                </button>
+              )}
+            </div>
+          </motion.div>
+        ))}
       </div>
 
       {/* 입력창 */}
@@ -318,7 +391,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             className="min-w-0 flex-1 rounded-full border border-line bg-card px-4 py-2.5 text-sm outline-none focus:border-accent"
           />
           <button
-            onClick={send}
+            onClick={() => send()}
             disabled={sending || !text.trim()}
             className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
             aria-label="전송"
@@ -366,5 +439,20 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ── 인라인 SVG 아이콘 (이모지 없음) ──────────────────────────────────────────
+function RetryIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M4 12a8 8 0 1 1 2.3 5.6M4 20v-5h5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
