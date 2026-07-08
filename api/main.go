@@ -522,17 +522,40 @@ func (s *server) auth(w http.ResponseWriter, r *http.Request) (string, session, 
 	return sid, sess, true
 }
 
-// 로그인 요청을 처리하는 함수
+// api는 모든 API 핸들러가 공유하는 공통 체인입니다: CORS 프리플라이트 → 메서드 검증 → 핸들러.
+// 개별 핸들러마다 같은 검사를 반복하다 일부에서 누락되는 일이 있어 한 곳으로 모았습니다.
+// 허용되지 않은 메서드는 Allow 헤더와 함께 405로 통일해 응답합니다.
+func (s *server) api(methods string, h http.HandlerFunc) http.HandlerFunc {
+	allowed := map[string]bool{}
+	for _, m := range strings.Split(methods, ",") {
+		allowed[strings.TrimSpace(m)] = true
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.cors(w, r) {
+			return
+		}
+		if !allowed[r.Method] {
+			w.Header().Set("Allow", strings.ReplaceAll(methods, ",", ", "))
+			s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
+			return
+		}
+		h(w, r)
+	}
+}
+
+// apiAuthed는 api 체인에 세션 검증을 더한 것입니다. 검증에 성공하면 sid와 세션을 핸들러에 넘깁니다.
+func (s *server) apiAuthed(methods string, h func(w http.ResponseWriter, r *http.Request, sid string, sess session)) http.HandlerFunc {
+	return s.api(methods, func(w http.ResponseWriter, r *http.Request) {
+		sid, sess, ok := s.auth(w, r)
+		if !ok {
+			return
+		}
+		h(w, r, sid, sess)
+	})
+}
+
+// 로그인 요청을 처리하는 함수 (공통 체인: s.api("POST"))
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	// POST 요청인지 검증 - 오류=405
-	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
-		return
-	}
 	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
 	if !s.loginRL.allow(clientIP(r)) || !s.loginGlobalRL.allow("global") {
 		s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too_many_attempts"})
@@ -596,12 +619,8 @@ func subtleNE(a, b string) bool {
 	return v != 0
 }
 
-// handleLogout - 로그아웃 처리
+// handleLogout - 로그아웃 처리 (공통 체인: s.api("POST"))
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
 	// bearer 토큰에서 세션sid를 가져오고, 해당 sid를 세션파일에서 제거 (로그아웃은 세션을 취소합니다. 유지x)
 	if sid := bearerOf(r); sid != "" {
 		s.sessions.remove(sid)
@@ -609,36 +628,13 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환
-func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증 - 오류=응답없음
-	_, sess, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
+// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleMe(w http.ResponseWriter, r *http.Request, _ string, sess session) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": sess.Nickname})
 }
 
-// handleNickname - 닉네임 설정 처리
-func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
-	// CORS 처리 - 오류=응답없음
-	if s.cors(w, r) {
-		return
-	}
-	sid, _, ok := s.auth(w, r)
-	// sid의 유효성 검증
-	if !ok {
-		return
-	}
-	// POST 요청인지 검증 - 오류=405
-	if r.Method != http.MethodPost {
-		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
-		return
-	}
+// handleNickname - 닉네임 설정 처리 (공통 체인: s.apiAuthed("POST"))
+func (s *server) handleNickname(w http.ResponseWriter, r *http.Request, sid string, _ session) {
 	var body struct {
 		Nickname string `json:"nickname"`
 	}
@@ -667,16 +663,8 @@ func (s *server) handleNickname(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": nick})
 }
 
-// handleStatus - 서버 상태를 브라우저에 반환
-func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// handleStatus - 서버 상태를 브라우저에 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleStatus(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	var st statusFile
 	var rec recordsFile
 	// 데모 모드라면 데모 데이터 반환,
@@ -723,15 +711,8 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // handlePerf - 서버 성능(perf.json)과 최근 기록을 브라우저에 반환
 // 데이터 목록 : tps, mspt, p95, count, spikes
 // 서버의 kubejs 모드에서 플레이어가 1명 이상일때만 데이터값을 제공 받습니다.
-func (s *server) handlePerf(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// (공통 체인: s.apiAuthed("GET"))
+func (s *server) handlePerf(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	var cur map[string]any
 	// 데모 모드라면 데모용 샘플 데이터를 가져오고,
 	// 아니라면 perf.json을 읽어 옵니다. (KubeJS가 기록한 값)
@@ -811,16 +792,8 @@ func (s *server) perfSampler() {
 	}
 }
 
-// handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환
-func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	if _, _, ok := s.auth(w, r); !ok {
-		return
-	}
+// handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환 (공통 체인: s.apiAuthed("GET"))
+func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request, _ string, _ session) {
 	// 데모 모드에서는 샘플 데이터 값을 불러오고,
 	// 아니라면 timeline.json을 읽어 옵니다.
 	var events []timelineEntry
@@ -837,16 +810,8 @@ func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleChat - 채팅 메시지를 브라우저에 반환하거나, 새 메시지를 받아 outbox에 저장
-func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
-	// cors 처리
-	if s.cors(w, r) {
-		return
-	}
-	// sid의 유효성 검증(로그인 세션)
-	sid, sess, ok := s.auth(w, r)
-	if !ok {
-		return
-	}
+// (공통 체인: s.apiAuthed("GET,POST"))
+func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, sess session) {
 	// GET 요청이면 since 이후의 메시지를 반환, POST 요청이면 새 메시지를 받아 outbox에 저장
 	switch r.Method {
 	case http.MethodGet:
@@ -915,8 +880,6 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	default:
-		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -1052,14 +1015,14 @@ func main() {
 
 	// ----------------------------------------------------------------- 메인 리스너 (경로 등록)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/login", s.handleLogin)
-	mux.HandleFunc("/api/logout", s.handleLogout)
-	mux.HandleFunc("/api/me", s.handleMe)
-	mux.HandleFunc("/api/nickname", s.handleNickname)
-	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/perf", s.handlePerf)
-	mux.HandleFunc("/api/chat", s.handleChat)
-	mux.HandleFunc("/api/timeline", s.handleTimeline)
+	mux.HandleFunc("/api/login", s.api("POST", s.handleLogin))
+	mux.HandleFunc("/api/logout", s.api("POST", s.handleLogout))
+	mux.HandleFunc("/api/me", s.apiAuthed("GET", s.handleMe))
+	mux.HandleFunc("/api/nickname", s.apiAuthed("POST", s.handleNickname))
+	mux.HandleFunc("/api/status", s.apiAuthed("GET", s.handleStatus))
+	mux.HandleFunc("/api/perf", s.apiAuthed("GET", s.handlePerf))
+	mux.HandleFunc("/api/chat", s.apiAuthed("GET,POST", s.handleChat))
+	mux.HandleFunc("/api/timeline", s.apiAuthed("GET", s.handleTimeline))
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작
