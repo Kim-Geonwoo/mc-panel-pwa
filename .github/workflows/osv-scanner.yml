@@ -1,7 +1,7 @@
 name: OSV-Scanner
 
 # OSV.dev 데이터베이스 기반 의존성 취약점 분석(SCA) — Go 모듈과 npm 트리.
-# 결과를 로그로 리포트하며, 코드 스캐닝(SARIF) 활성화에 의존하지 않는다.
+# 결과를 SARIF로 Security 탭에 업로드해 발견 항목을 한곳에서 추적한다.
 on:
   push:
     branches: [main, dev]
@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write # SARIF 업로드(Security 탭)
 
 jobs:
   scan:
@@ -25,7 +26,13 @@ jobs:
           go-version: stable
           cache: false
       - name: OSV-Scanner 설치 및 스캔
-        continue-on-error: true # 발견 항목은 로그로 보고하되 빌드를 막지 않는다
+        continue-on-error: true # 발견 항목은 리포트하되 빌드를 막지 않는다
         run: |
           go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.0.2
-          "$(go env GOPATH)/bin/osv-scanner" scan source -r . || true
+          "$(go env GOPATH)/bin/osv-scanner" scan source -r --format sarif --output osv.sarif . || true
+      - name: SARIF 업로드
+        if: ${{ hashFiles('osv.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
