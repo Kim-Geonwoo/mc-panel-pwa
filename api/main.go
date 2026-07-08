@@ -62,9 +62,43 @@ type config struct {
 	allowOrigin  string
 	alertWebhook string
 	demo         bool
+	pushEvents   []string // 활성화된 웹 푸시 알림 종류(서버 권위). 빈 목록이면 푸시 전체 비활성
 
 	timelineRetentionDays int
 	codeRotateSec         int
+}
+
+// parsePushEvents는 PANEL_PUSH_EVENTS(CSV)를 유효한 알림 종류 목록으로 정규화합니다.
+// 유효 토큰은 "server"/"join"뿐이며, 그 외는 무시합니다. 순서는 "server" 먼저,
+// 그다음 "join"으로 고정합니다. 결과가 빈 목록이면 푸시 기능 전체가 비활성입니다.
+func parsePushEvents(v string) []string {
+	var hasServer, hasJoin bool
+	for _, tok := range strings.Split(v, ",") {
+		switch strings.ToLower(strings.TrimSpace(tok)) {
+		case "server":
+			hasServer = true
+		case "join":
+			hasJoin = true
+		}
+	}
+	out := []string{}
+	if hasServer {
+		out = append(out, "server")
+	}
+	if hasJoin {
+		out = append(out, "join")
+	}
+	return out
+}
+
+// pushEventEnabled는 해당 알림 종류가 서버 설정에서 활성인지 알려 줍니다.
+func (c config) pushEventEnabled(ev string) bool {
+	for _, e := range c.pushEvents {
+		if e == ev {
+			return true
+		}
+	}
+	return false
 }
 
 func getenv(k, def string) string {
@@ -150,6 +184,12 @@ func getenvBool(k string, def bool) bool {
 //
 //	비워 두면 경보를 로그로만 남깁니다.
 
+// pushEvents: 웹 푸시로 보낼 알림 종류(PANEL_PUSH_EVENTS, CSV). 기본 "server,join".
+//
+//	유효 토큰은 server(다운/복구)·join(플레이어 접속)뿐이며 그 외는 무시합니다.
+//	빈 목록(예: 무효값·"none")이면 푸시 기능 전체가 비활성이며 /api/push/config가
+//	빈 응답을 돌려줘 UI가 관련 화면을 숨깁니다.
+
 // demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
@@ -176,6 +216,7 @@ func loadConfig() config {
 		allowOrigin:  getenv("PANEL_ALLOW_ORIGIN", ""),
 		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
+		pushEvents:   parsePushEvents(getenv("PANEL_PUSH_EVENTS", "server,join")),
 
 		timelineRetentionDays: getenvInt("PANEL_TIMELINE_RETENTION_DAYS", 90),
 		codeRotateSec:         getenvInt("PANEL_CODE_ROTATE_SEC", 21600),
@@ -1220,7 +1261,7 @@ func main() {
 	mux.HandleFunc("/api/perf", s.apiAuthed("GET", s.handlePerf))
 	mux.HandleFunc("/api/chat", s.apiAuthed("GET,POST", s.handleChat))
 	mux.HandleFunc("/api/timeline", s.apiAuthed("GET", s.handleTimeline))
-	mux.HandleFunc("/api/push/key", s.apiAuthed("GET", s.handlePushKey))
+	mux.HandleFunc("/api/push/config", s.apiAuthed("GET", s.handlePushConfig))
 	mux.HandleFunc("/api/push/subscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushSubscribe(w, r) }))
 	mux.HandleFunc("/api/push/unsubscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushUnsubscribe(w, r) }))
 	mux.HandleFunc("/", s.static)

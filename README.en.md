@@ -93,7 +93,7 @@ Status/perf are read from JSON files written by server-side KubeJS — and
 | GET | `/api/perf` | Bearer | Live perf sample + rolling history (charts) |
 | GET/POST | `/api/chat` | Bearer | Read the merged feed (`since` forward poll · `before` history) / post a web message (returns `{id,ts}` on store) |
 | GET | `/api/timeline` | Bearer | Join/leave events for the timeline tab |
-| GET/POST | `/api/push/key` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | Web push (VAPID): key fetch, subscribe, unsubscribe — server down/up + join alerts. iOS needs 16.4+ home-screen install |
+| GET/POST | `/api/push/config` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | Web push (VAPID): config (key + server-enabled kinds via `PANEL_PUSH_EVENTS`), subscribe (per-kind `topics`), unsubscribe — server down/up + join alerts. iOS needs 16.4+ home-screen install |
 | GET | `/healthz` | — | Loopback-only liveness probe (uptime monitoring) |
 | * | `/internal/*` | loopback | Bot-only internal API (ingest, session list/revoke) — never on the exposed listener |
 
