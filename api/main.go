@@ -53,12 +53,15 @@ type config struct {
 	perfJSON     string
 	perfHistJSON string
 	staticDir    string
+	dbPath       string
 	maxPlayers   int
 	freshSec     float64
 	sessionSec   int64
 	allowOrigin  string
 	alertWebhook string
 	demo         bool
+
+	timelineRetentionDays int
 }
 
 func getenv(k, def string) string {
@@ -116,6 +119,12 @@ func getenvBool(k string, def bool) bool {
 
 // staticDir: 정적 파일이 위치한 디렉토리 경로 (예: "./web/out") [Next.js로 빌드한 파일폴더]
 
+// dbPath: 채팅·타임라인 SQLite DB 파일 경로 (예: "./data/panel.db"). WAL 부속 파일
+//
+//	(panel.db-wal, panel.db-shm)이 같은 디렉토리에 생깁니다.
+
+// timelineRetentionDays: 타임라인 접속 이벤트 보존 일수 (기본 90일, DB에서 주기 정리)
+
 // maxPlayers: 서버에 허용되는 최대 플레이어 수 (예: 20) [패널에 표시됩니다]
 
 // freshSec: 서버 상태가 최신인지 판단하는 시간(초) (예: 21)
@@ -145,12 +154,15 @@ func loadConfig() config {
 		perfJSON:     getenv("PANEL_PERF_JSON", filepath.Join(mc, "perf.json")),
 		perfHistJSON: getenv("PANEL_PERF_HISTORY_JSON", filepath.Join(mc, "perf_history.json")),
 		staticDir:    getenv("PANEL_STATIC_DIR", "./web/out"),
+		dbPath:       getenv("PANEL_DB", filepath.Join(br, "panel.db")),
 		maxPlayers:   getenvInt("PANEL_MAX_PLAYERS", 20),
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
 		allowOrigin:  getenv("PANEL_ALLOW_ORIGIN", ""),
 		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
+
+		timelineRetentionDays: getenvInt("PANEL_TIMELINE_RETENTION_DAYS", 90),
 	}
 }
 
@@ -499,6 +511,7 @@ type server struct {
 	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
 	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
 	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
+	store         *store          // 채팅·타임라인 SQLite 저장소 (데모 모드에서는 nil)
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 }
@@ -831,15 +844,19 @@ func (s *server) perfSampler() {
 
 // handleTimeline - 타임라인 탭에 표시할 접속 이벤트를 브라우저에 반환 (공통 체인: s.apiAuthed("GET"))
 func (s *server) handleTimeline(w http.ResponseWriter, r *http.Request, _ string, _ session) {
-	// 데모 모드에서는 샘플 데이터 값을 불러오고,
-	// 아니라면 timeline.json을 읽어 옵니다.
+	// 데모 모드에서는 샘플 데이터 값을 불러오고, 아니라면 SQLite에서 조회합니다.
 	var events []timelineEntry
 	if s.cfg.demo {
 		events = demoTimeline()
 	} else {
-		_ = readJSON(s.cfg.timelineJSON, &events)
+		var err error
+		events, err = s.store.timelineEvents()
+		if err != nil {
+			log.Printf("timeline query failed: %v", err)
+			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+			return
+		}
 	}
-	// timeline.json이 존재하지 않거나 비어 있으면 빈 배열로 초기화
 	if events == nil {
 		events = []timelineEntry{}
 	}
@@ -853,27 +870,30 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, 
 	switch r.Method {
 	case http.MethodGet:
 		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
-		var all []chatMsg
+		// 데모 모드는 in-memory 시드 스토어에서 필터링합니다.
 		if s.cfg.demo {
-			all = demoChat()
-		} else {
-			_ = readJSON(s.cfg.chatJSON, &all)
-		}
-		out := make([]chatMsg, 0, len(all))
-		// since 이후의 메시지만 필터링하고, 마지막 메시지 ID를 계산합니다.
-		var last int64 = since
-		for _, m := range all {
-			// since 이후의 메시지만 필터링
-			if m.ID > since {
-				out = append(out, m)
+			all := demoChat()
+			out := make([]chatMsg, 0, len(all))
+			var last int64 = since
+			for _, m := range all {
+				if m.ID > since {
+					out = append(out, m)
+				}
+				if m.ID > last {
+					last = m.ID
+				}
 			}
-			// 마지막 메시지 ID 계산
-			if m.ID > last {
-				last = m.ID
-			}
+			sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+			s.writeJSON(w, http.StatusOK, map[string]any{"messages": out, "last_id": last})
+			return
 		}
-		// 메시지 ID 기준으로 오름차순 정렬
-		sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+		// SQLite에서 since 이후 최신 200개를 조회합니다 (기존 chat.json 롤링 버퍼와 같은 창 크기)
+		out, last, err := s.store.chatSince(since, 200)
+		if err != nil {
+			log.Printf("chat query failed: %v", err)
+			s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+			return
+		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"messages": out, "last_id": last})
 	// POST 요청이면 새 메시지를 받아 outbox에 저장
 	case http.MethodPost:
@@ -1017,6 +1037,19 @@ func main() {
 		alert:         newAlerter(cfg.alertWebhook),
 	}
 
+	// 데모 모드가 아니면 SQLite 저장소를 열고 봇 파일 임포터를 시작합니다.
+	// (데모 모드는 in-memory 샘플 데이터만 쓰므로 DB가 필요 없습니다)
+	stopImporter := make(chan struct{})
+	if !cfg.demo {
+		st, err := openStore(cfg.dbPath)
+		if err != nil {
+			log.Fatalf("db open failed (%s): %v", cfg.dbPath, err)
+		}
+		s.store = st
+		defer func() { _ = st.close() }()
+		go s.runImporter(stopImporter)
+	}
+
 	go s.perfSampler() // 패널 차트에 쓸 실시간 성능 기록을 백그라운드에서 모읍니다
 
 	// ----------------------------------------------------------------- 헬스 체크 리스너
@@ -1090,6 +1123,7 @@ func main() {
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
 		log.Printf("shutdown signal received — draining connections")
+		close(stopImporter) // DB를 닫기 전에 임포터부터 멈춥니다
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
