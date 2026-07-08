@@ -59,10 +59,20 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const feedRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const firstRef = useRef(true);
+  const [unread, setUnread] = useState(0);
+  const tabRef = useRef(tab);
+  const savedScrollRef = useRef(0); // 탭 이동 후 복귀 시 스크롤 위치 복원용
+
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
 
   function onFeedScroll() {
     const el = feedRef.current;
-    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!el) return;
+    savedScrollRef.current = el.scrollTop;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (atBottomRef.current) setUnread(0);
   }
   function scrollToBottom(smooth = true) {
     requestAnimationFrame(() => {
@@ -107,7 +117,13 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         const r = await fetchChat(sinceRef.current);
         if (alive && r.last_id > sinceRef.current) {
           sinceRef.current = r.last_id;
-          if (r.messages.length) setMsgs((p) => mergeMsgs(p, r.messages));
+          if (r.messages.length) {
+            setMsgs((p) => mergeMsgs(p, r.messages));
+            // 채팅 탭 밖이거나 위로 스크롤해 읽는 중이면 미확인으로 집계
+            if (tabRef.current !== "chat" || !atBottomRef.current) {
+              setUnread((u) => u + r.messages.length);
+            }
+          }
         }
       } catch (e) {
         if (e instanceof UnauthorizedError) return onLogout();
@@ -127,10 +143,21 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     if (firstRef.current) {
       firstRef.current = false;
       scrollToBottom(false);
-    } else if (atBottomRef.current) {
+    } else if (tabRef.current === "chat" && atBottomRef.current) {
       scrollToBottom(true);
     }
-  }, [msgs]);
+  }, [msgs, localMsgs]);
+
+  // 채팅 탭 복귀 시 스크롤 복원 — 맨 아래였으면 다시 맨 아래로, 읽던 중이면 그 위치로
+  useEffect(() => {
+    if (tab !== "chat") return;
+    requestAnimationFrame(() => {
+      const el = feedRef.current;
+      if (!el) return;
+      if (atBottomRef.current) scrollToBottom(false);
+      else el.scrollTop = savedScrollRef.current;
+    });
+  }, [tab]);
 
   // 낙관적 전송: 보내자마자 피드에 '전송 중'으로 표시하고, 서버가 id를 확정하면
   // 확정 메시지로 승격한다. 실패하면 '실패' 상태로 남겨 재시도할 수 있게 한다.
@@ -286,16 +313,19 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             ].join(" ")}
           >
             {tb === "chat" ? "채팅" : tb === "perf" ? "성능" : "타임라인"}
+            {tb === "chat" && unread > 0 && tab !== "chat" && (
+              <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold tabular-nums text-accent-fg">
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
-      {tab === "perf" ? (
-        <PerfView serverUp={up} onLogout={onLogout} />
-      ) : tab === "timeline" ? (
-        <TimelineView onLogout={onLogout} />
-      ) : (
-        <>
+      {tab === "perf" && <PerfView serverUp={up} onLogout={onLogout} />}
+      {tab === "timeline" && <TimelineView onLogout={onLogout} />}
+      {/* 채팅은 탭을 떠나도 마운트 유지(hidden) — 스크롤 위치·입력 중 텍스트 보존 */}
+      <div className={["relative flex min-h-0 flex-1 flex-col", tab === "chat" ? "" : "hidden"].join(" ")}>
       {/* 채팅 피드 */}
       <div
         ref={feedRef}
@@ -370,6 +400,22 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         ))}
       </div>
 
+      {/* 새 메시지 점프 버튼 — 위로 스크롤해 읽는 중 새 메시지가 오면 표시 */}
+      {unread > 0 && (
+        <button
+          onClick={() => {
+            setUnread(0);
+            atBottomRef.current = true;
+            scrollToBottom(true);
+          }}
+          aria-label="새 메시지로 이동"
+          className="absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-card px-3 py-1.5 text-xs font-semibold text-accent shadow-card active:scale-95"
+        >
+          <DownIcon />
+          새 메시지 <span className="tabular-nums">{unread > 99 ? "99+" : unread}</span>
+        </button>
+      )}
+
       {/* 입력창 */}
       <div className="pb-safe shrink-0 border-t border-line bg-bg px-4 pt-2">
         {chatErr && <div className="pb-1 text-xs text-danger">{chatErr}</div>}
@@ -402,8 +448,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           </button>
         </div>
       </div>
-        </>
-      )}
+      </div>
 
       {/* TPS 설명 모달 */}
       <AnimatePresence>
@@ -443,6 +488,14 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
 }
 
 // ── 인라인 SVG 아이콘 (이모지 없음) ──────────────────────────────────────────
+function DownIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+      <path d="M12 5v14m0 0l-6-6m6 6l6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function RetryIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
