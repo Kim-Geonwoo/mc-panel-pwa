@@ -6,6 +6,7 @@ import {
   avatarUrl,
   ChatMessage,
   fetchChat,
+  fetchChatBefore,
   fetchStatus,
   getMe,
   logout,
@@ -62,10 +63,43 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   const [unread, setUnread] = useState(0);
   const tabRef = useRef(tab);
   const savedScrollRef = useRef(0); // 탭 이동 후 복귀 시 스크롤 위치 복원용
+  const msgsRef = useRef<ChatMessage[]>([]);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const hasMoreRef = useRef(true); // 과거 메시지가 더 있는지 (50개 미만 응답 시 소진)
 
   useEffect(() => {
     tabRef.current = tab;
   }, [tab]);
+  useEffect(() => {
+    msgsRef.current = msgs;
+  }, [msgs]);
+
+  // 과거 메시지 로딩 — 프리펜드 후 scrollHeight 차이만큼 보정해 읽던 위치를 유지
+  async function loadOlder() {
+    const first = msgsRef.current[0];
+    if (!first || loadingOlderRef.current || !hasMoreRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const r = await fetchChatBefore(first.id);
+      if (r.messages.length < 50) hasMoreRef.current = false;
+      if (r.messages.length) {
+        const el = feedRef.current;
+        const prevH = el?.scrollHeight ?? 0;
+        setMsgs((p) => mergeMsgs(p, r.messages));
+        requestAnimationFrame(() => {
+          const el2 = feedRef.current;
+          if (el2) el2.scrollTop += el2.scrollHeight - prevH;
+        });
+      }
+    } catch (e) {
+      if (e instanceof UnauthorizedError) return onLogout();
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }
 
   function onFeedScroll() {
     const el = feedRef.current;
@@ -73,6 +107,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     savedScrollRef.current = el.scrollTop;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     if (atBottomRef.current) setUnread(0);
+    if (el.scrollTop < 60) loadOlder(); // 맨 위 근처 — 과거 메시지 로딩
   }
   function scrollToBottom(smooth = true) {
     requestAnimationFrame(() => {
@@ -332,6 +367,9 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         onScroll={onFeedScroll}
         className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-2 [-webkit-overflow-scrolling:touch]"
       >
+        {loadingOlder && (
+          <div className="py-1 text-center text-[11px] text-muted">이전 메시지 불러오는 중…</div>
+        )}
         {msgs.length === 0 && localMsgs.length === 0 ? (
           <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
         ) : (
