@@ -21,11 +21,20 @@ type vapidKeys struct {
 	Private string `json:"private"`
 }
 
+// pushHTTP는 푸시 발송에 재사용하는 단일 HTTP 클라이언트입니다. 타임아웃이 없으면
+// 응답 없는 푸시 엔드포인트 하나가 직렬 발송 루프를 무한정 붙잡을 수 있습니다.
+var pushHTTP = &http.Client{Timeout: 10 * time.Second}
+
 // loadOrCreateVAPID는 저장된 키를 읽고, 없으면 새로 생성해 원자적으로 기록합니다.
 func loadOrCreateVAPID(path string) (vapidKeys, error) {
 	var k vapidKeys
 	if err := readJSON(path, &k); err == nil && k.Public != "" && k.Private != "" {
 		return k, nil
+	}
+	// 파일이 존재하는데(genuinely-absent가 아님) 읽히지 않으면 재생성은 곧 키 회전이며
+	// 기존 구독이 전부 무효화됩니다. 조용히 넘기지 않고 경고를 남깁니다(최초 실행은 무경고).
+	if _, statErr := os.Stat(path); statErr == nil {
+		log.Printf("vapid: 기존 키 파일(%s)을 읽을 수 없어 재생성합니다 — 키가 회전되어 모든 기존 구독이 무효화됩니다", path)
 	}
 	priv, pub, err := webpush.GenerateVAPIDKeys()
 	if err != nil {
@@ -75,6 +84,11 @@ func (s *server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil ||
 		body.Endpoint == "" || body.Keys.P256dh == "" || body.Keys.Auth == "" {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
+		return
+	}
+	// 서버가 나중에 이 엔드포인트로 POST하므로(블라인드 SSRF 표면), https만 허용합니다.
+	if !strings.HasPrefix(body.Endpoint, "https://") {
 		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "error"})
 		return
 	}
@@ -165,6 +179,7 @@ func (s *server) sendPushAllSync(topic, title, body string) {
 			Endpoint: sub.Endpoint,
 			Keys:     webpush.Keys{P256dh: sub.P256dh, Auth: sub.Auth},
 		}, &webpush.Options{
+			HTTPClient:      pushHTTP, // 응답 없는 엔드포인트가 직렬 루프를 막지 않도록 10초 타임아웃
 			VAPIDPublicKey:  s.vapid.Public,
 			VAPIDPrivateKey: s.vapid.Private,
 			Subscriber:      "https://github.com/Kim-Geonwoo/mc-panel-pwa",

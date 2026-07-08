@@ -16,6 +16,14 @@ export default function ViewportFix() {
       raf = requestAnimationFrame(() => {
         const h = vv ? vv.height : window.innerHeight;
         root.style.setProperty("--app-h", `${Math.round(h)}px`);
+        // 키보드 열림 감지 → 하단 safe-area 이중 계산 방지.
+        // iOS는 키보드가 열리면 visualViewport.height만 줄어들고(레이아웃 뷰포트/innerHeight는
+        // 고정) 그 줄어든 높이가 이미 홈 인디케이터 영역을 제외한다. 그런데
+        // env(safe-area-inset-bottom)은 키보드가 열려도 34px를 유지하는 WebKit 버그가 있어,
+        // 입력창의 pb-safe가 그 34px를 한 번 더 얹어 유령 공백을 만든다. 키보드가 열렸으면
+        // --safe-b를 0으로 죽여 중복을 없앤다(닫히면 원래대로 env 적용).
+        const kbOpen = !!vv && window.innerHeight - vv.height > 120;
+        root.style.setProperty("--safe-b", kbOpen ? "0px" : "env(safe-area-inset-bottom, 0px)");
         // iOS는 포커스된 필드가 보이도록 페이지를 이동시키는데, 상단 고정 셸이 가시
         // 뷰포트 상단 가장자리에 맞춰지도록 다시 원위치로 끌어온다.
         if (vv && (vv.offsetTop > 0 || window.scrollY > 0)) window.scrollTo(0, 0);

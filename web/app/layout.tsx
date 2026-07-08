@@ -28,6 +28,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   // maximumScale을 강제하지 않는다 — 핀치 줌 차단은 저시력 사용자 접근성 위반(WCAG 1.4.4)
   viewportFit: "cover",
+  // Android Chrome에서만 유효(키보드가 콘텐츠를 리사이즈). iOS WebKit은 이 속성을
+  // 무시하므로 iOS 키보드 대응은 ViewportFix.tsx의 VisualViewport JS가 담당한다.
   interactiveWidget: "resizes-content",
 };
 
