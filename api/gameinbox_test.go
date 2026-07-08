@@ -18,10 +18,12 @@ func TestAppendGameInbox(t *testing.T) {
 	if err := s.appendGameInbox(11, "영희", "반가워"); err != nil {
 		t.Fatal(err)
 	}
+	var wrap gameInboxFile
 	var got []gameInboxEntry
-	if err := readJSON(s.cfg.gameInbox, &got); err != nil {
+	if err := readJSON(s.cfg.gameInbox, &wrap); err != nil {
 		t.Fatal(err)
 	}
+	got = wrap.Messages
 	if len(got) != 2 || got[0].ID != 10 || got[1].User != "영희" || got[1].Text != "반가워" {
 		t.Fatalf("inbox contents: %+v", got)
 	}
@@ -38,7 +40,9 @@ func TestAppendGameInbox(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_ = readJSON(s.cfg.gameInbox, &got)
+	wrap = gameInboxFile{}
+	_ = readJSON(s.cfg.gameInbox, &wrap)
+	got = wrap.Messages
 	if len(got) != 50 || got[0].ID != 110 || got[49].ID != 159 {
 		t.Fatalf("rolling cap: len=%d first=%d last=%d", len(got), got[0].ID, got[len(got)-1].ID)
 	}
@@ -47,7 +51,9 @@ func TestAppendGameInbox(t *testing.T) {
 	if err := s.appendGameInbox(200, "u", "m"); err != nil {
 		t.Fatal(err)
 	}
-	_ = readJSON(s.cfg.gameInbox, &got)
+	wrap = gameInboxFile{}
+	_ = readJSON(s.cfg.gameInbox, &wrap)
+	got = wrap.Messages
 	if len(got) != 1 || got[0].ID != 200 {
 		t.Fatalf("recovery: %+v", got)
 	}
