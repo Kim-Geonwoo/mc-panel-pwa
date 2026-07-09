@@ -5,14 +5,14 @@
 #   → http://localhost:8080 (로그인 코드 000000)
 # 실제 배포에서는 PANEL_DEMO=false와 데이터 경로 환경변수를 주입한다(.env.example 참고).
 
-FROM node:20-alpine AS web
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS api
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS api
 WORKDIR /src/api
 COPY api/go.mod api/go.sum ./
 RUN go mod download
@@ -20,7 +20,7 @@ COPY api/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mc_sv-panel .
 
 # CGO 없는 정적 바이너리 + 정적 자산만 필요하므로 distroless(비루트)로 최소화
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:b7bb25d9f7c31d2bdd1982feb4dafcaf137703c7075dbe2febb41c24212b946f
 WORKDIR /app
 COPY --from=api /out/mc_sv-panel /app/mc_sv-panel
 COPY --from=web /src/web/out /app/web/out
