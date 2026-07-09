@@ -2,6 +2,8 @@
 
 [한국어](README.md) | **English**
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Kim-Geonwoo/mc-panel-pwa/badge)](https://scorecard.dev/viewer/?uri=github.com/Kim-Geonwoo/mc-panel-pwa)
+
 An **authenticated, installable PWA dashboard for a Minecraft server** — live
 player status, real-time performance charts, and a three-way (game ↔ Discord ↔
 web) chat bridge. A statically-exported Next.js front end served by a single,
