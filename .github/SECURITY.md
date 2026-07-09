@@ -2,13 +2,24 @@
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue for security problems. Instead, use
-GitHub's private vulnerability reporting:
+Please **do not** open a public issue for security problems. Instead, report
+privately through GitHub Security Advisories:
 
-> Repository → **Security** tab → **Report a vulnerability**
+- **Report a vulnerability:** https://github.com/Kim-Geonwoo/mc-panel-pwa/security/advisories/new
+- Or: Repository → **Security** tab → **Report a vulnerability**
 
-You'll get an acknowledgement as soon as possible. Once a fix is ready and
-released, the report is disclosed publicly with credit (if you want it).
+### Disclosure process and timeline
+
+1. **Acknowledgement** within **3 business days** of your report.
+2. **Assessment and triage** within **7 days**, with a severity estimate and
+   an initial remediation plan.
+3. **Fix and coordinated disclosure**: we aim to release a fix within **30 days**
+   for high/critical issues. Once the fix is released, the advisory is published
+   publicly with credit to the reporter (if you want it), following a
+   **90-day coordinated disclosure** cap.
+
+There is no bug-bounty program; this is a personal project, but every report is
+taken seriously and handled on the timeline above.
 
 ## How this project is hardened
 
