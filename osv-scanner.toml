@@ -1,0 +1,7 @@
+# osv-scanner 무시 목록 — 근거를 명시한 항목만 둔다.
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+# golang.org/x/crypto/openpgp(미유지 서브패키지) 권고. 우리는 이 서브패키지를 임포트하지
+# 않으며(grep 확인), govulncheck 도달성 분석에서 0건으로 확정됨. x/crypto 모듈 자체는
+# webpush-go의 ECDH/HKDF용 간접 의존이고 수정 버전이 없는(deprecated) 권고라 회피 불가.
+reason = "golang.org/x/crypto/openpgp is not imported; govulncheck reports 0 reachable vulnerabilities. Deprecated subpackage advisory with no fixed version."
