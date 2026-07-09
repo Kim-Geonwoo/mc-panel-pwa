@@ -191,7 +191,7 @@ export default function SettingsSheet({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="설정"
-        className="pb-safe max-h-[85vh] w-full max-w-[380px] overflow-y-auto rounded-t-2xl border-t border-line bg-card p-5 shadow-card sm:rounded-2xl sm:border"
+        className="pb-safe max-h-[85vh] w-full max-w-[420px] overflow-y-auto rounded-t-2xl border-t border-line bg-card p-5 shadow-card sm:rounded-2xl sm:border"
       >
         <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-line sm:hidden" />
         <div className="flex items-center">
@@ -207,15 +207,20 @@ export default function SettingsSheet({
           </button>
         </div>
 
+        <div className="mt-4 space-y-3">
         {/* ① 알림 */}
-        <section className="mt-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">알림</h3>
+        <section className="rounded-2xl border border-line bg-card2 p-4">
+          <h3 className="text-sm font-semibold text-fg">알림</h3>
           {!pushSupported ? (
-            <p className="mt-2 text-sm text-muted">이 브라우저는 푸시 알림을 지원하지 않습니다.</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">이 브라우저는 푸시 알림을 지원하지 않습니다.</p>
           ) : !pushReady ? (
-            <p className="mt-2 text-sm text-muted">불러오는 중…</p>
+            <div className="mt-2 space-y-2.5">
+              <div className="h-9 w-full rounded-xl bg-line motion-safe:animate-pulse" />
+              <div className="h-6 w-2/3 rounded bg-line motion-safe:animate-pulse" />
+              <div className="h-6 w-1/2 rounded bg-line motion-safe:animate-pulse" />
+            </div>
           ) : !pushOffered ? (
-            <p className="mt-2 text-sm text-muted">이 서버는 푸시 알림을 제공하지 않습니다.</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">이 서버는 푸시 알림을 제공하지 않습니다.</p>
           ) : (
             <>
               <div className="mt-2 flex items-center justify-between">
@@ -262,8 +267,8 @@ export default function SettingsSheet({
         </section>
 
         {/* ② 탭 표시 */}
-        <section className="mt-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">탭 표시</h3>
+        <section className="rounded-2xl border border-line bg-card2 p-4">
+          <h3 className="text-sm font-semibold text-fg">탭 표시</h3>
           <div className="mt-1 space-y-0.5">
             <CheckRow
               checked={tabPrefs.perf}
@@ -276,12 +281,12 @@ export default function SettingsSheet({
               label="타임라인 탭"
             />
           </div>
-          <p className="mt-1 text-xs text-muted">채팅 탭은 항상 표시됩니다.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">채팅 탭은 항상 표시됩니다.</p>
         </section>
 
         {/* ③ 닉네임 변경 */}
-        <section className="mt-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">닉네임 변경</h3>
+        <section className="rounded-2xl border border-line bg-card2 p-4">
+          <h3 className="text-sm font-semibold text-fg">닉네임 변경</h3>
           <div className="mt-2 flex items-center gap-2">
             <input
               value={nickInput}
@@ -318,18 +323,19 @@ export default function SettingsSheet({
         </section>
 
         {/* ④ 로그아웃 */}
-        <section className="mt-5 border-t border-line pt-4">
+        <section className="rounded-2xl border border-line bg-card2 p-4">
           <button
             type="button"
             onClick={async () => {
               await logout();
               onLogout();
             }}
-            className="w-full rounded-xl border border-line py-2.5 text-sm font-semibold text-danger transition-colors hover:bg-card2 active:scale-[0.99]"
+            className="w-full rounded-xl border border-line py-2.5 text-sm font-semibold text-danger transition-colors hover:bg-card active:scale-[0.99]"
           >
             로그아웃
           </button>
         </section>
+        </div>
       </motion.div>
     </motion.div>
   );

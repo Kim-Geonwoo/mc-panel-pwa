@@ -42,7 +42,32 @@ export default function PerfView({
   }, [onLogout]);
 
   if (!perf) {
-    return <div className="grid flex-1 place-items-center text-sm text-muted">불러오는 중…</div>;
+    return (
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-2">
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-line bg-card p-3 text-center shadow-card">
+              <div className="mx-auto h-5 w-10 rounded bg-line motion-safe:animate-pulse" />
+              <div className="mx-auto mt-1 h-2.5 w-12 rounded bg-line motion-safe:animate-pulse" />
+            </div>
+          ))}
+        </div>
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-2xl border border-line bg-card p-4 shadow-card">
+            <div className="mb-2 h-3 w-28 rounded bg-line motion-safe:animate-pulse" />
+            <div className="h-[130px] w-full rounded bg-line motion-safe:animate-pulse" />
+          </div>
+        ))}
+        <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
+          <div className="mb-2 h-3 w-32 rounded bg-line motion-safe:animate-pulse" />
+          <div className="space-y-1.5">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-4 w-full rounded bg-line motion-safe:animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
   const cur = perf.current;
   const hist = perf.history ?? [];
@@ -64,7 +89,7 @@ export default function PerfView({
   const dims = [...dimsView].sort((a, b) => b.entities - a.entities);
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-2">
+    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-2">
       <div className="grid grid-cols-3 gap-2">
         <Stat label="MSPT 평균" value={cur ? cur.mspt.toFixed(1) : "—"} unit="ms" bad={!!cur && cur.mspt >= 50} />
         <Stat label="MSPT p95" value={p95 >= 0 ? p95.toFixed(1) : "—"} unit="ms" bad={p95 >= 50} />
@@ -74,16 +99,16 @@ export default function PerfView({
         <Stat label="접속자" value={cur ? String(cur.count) : "—"} unit="명" />
       </div>
 
-      <div className="rounded-2xl border border-line bg-card p-3 shadow-card">
+      <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
         <div className="mb-1 text-xs font-medium text-muted">TPS · 최근 ~12분</div>
         <Chart data={tpsData} label="TPS" color="#36d36c" min={0} max={20} />
       </div>
-      <div className="rounded-2xl border border-line bg-card p-3 shadow-card">
+      <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
         <div className="mb-1 text-xs font-medium text-muted">MSPT (ms) · 50ms 초과 시 렉</div>
         <Chart data={msptData} label="MSPT" color={laggy ? "#ef4444" : "#5b8def"} min={0} threshold={50} />
       </div>
 
-      <div className="rounded-2xl border border-line bg-card p-3 shadow-card">
+      <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
         <div className="mb-2 text-xs font-medium text-muted">차원별 부하 (엔티티 · 로드청크)</div>
         {dims.length ? (
           <div className="space-y-1.5">
@@ -109,12 +134,12 @@ export default function PerfView({
 
 function Stat({ label, value, unit, bad }: { label: string; value: string; unit: string; bad?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-card p-2.5 text-center shadow-card">
+    <div className="rounded-xl border border-line bg-card p-3 text-center shadow-card">
       <div className={["text-lg font-bold tabular-nums", bad ? "text-danger" : "text-fg"].join(" ")}>
         {value}
         <span className="text-xs font-medium text-muted">{unit}</span>
       </div>
-      <div className="text-[10px] text-muted">{label}</div>
+      <div className="text-[11px] text-muted">{label}</div>
     </div>
   );
 }
