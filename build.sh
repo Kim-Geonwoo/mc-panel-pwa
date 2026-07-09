@@ -8,7 +8,7 @@ export GOPATH="$HOME/go" GOCACHE="$HOME/.cache/go-build"
 
 echo "[build] web → static export (web/out)"
 cd "$HERE/web"
-npm install --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run build
 
 echo "[build] api → Go binary (api/mc_sv-panel)"

@@ -1,14 +1,15 @@
-## What & why
+## 무엇을·왜 / What & why
 
-<!-- Briefly describe the change and the motivation. -->
+<!-- 변경 내용과 동기를 간단히 적어 주세요. / Briefly describe the change and the motivation. -->
 
-## Changes
+## 변경 사항 / Changes
 
 -
 
-## Checklist
+## 체크리스트 / Checklist
 
-- [ ] `gofmt` clean, `go vet` passes, `go build` succeeds (api/)
-- [ ] `npm run lint` and `tsc --noEmit` pass, `npm run build` succeeds (web/)
-- [ ] No secrets or personal paths added (gitleaks clean)
-- [ ] Docs / `.env.example` updated if config changed
+- [ ] `gofmt` 통과, `go vet` 통과, `go build` 성공 (api/) / `gofmt` clean, `go vet` passes, `go build` succeeds (api/)
+- [ ] `npm run lint`·`tsc --noEmit` 통과, `npm run build` 성공 (web/) / `npm run lint` and `tsc --noEmit` pass, `npm run build` succeeds (web/)
+- [ ] 새 기능에는 테스트 추가/갱신 (해당 시) / Tests added or updated for new functionality (where applicable)
+- [ ] 시크릿·개인 경로 추가 없음 (gitleaks 통과) / No secrets or personal paths added (gitleaks clean)
+- [ ] 설정 변경 시 문서·`.env.example` 갱신 / Docs / `.env.example` updated if config changed
