@@ -1,7 +1,7 @@
 name: Scorecard
 
 # OpenSSF Scorecard — 레포 보안 관행을 자동 점검해 Security 탭(code-scanning)에 보고한다.
-# 1단계: publish_results=false로 시범 실행해 실점수 확인 → 개선 후 2단계에서 공개+배지.
+# 결과를 공개 API(api.scorecard.dev)에 게시해 README 배지가 실점수를 표시한다.
 on:
   branch_protection_rule: # 브랜치 보호 변경 시 즉시 재평가
   push:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       security-events: write # SARIF 업로드(Security 탭)
-      id-token: write # publish_results의 OIDC 증명(2단계에서 사용)
+      id-token: write # publish_results의 OIDC 증명(공개 게시용)
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -30,7 +30,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: false
+          publish_results: true
 
       - name: 결과 아티팩트 보관
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
