@@ -1,7 +1,9 @@
 name: Scorecard
 
-# OpenSSF Scorecard — 레포 보안 관행을 자동 점검해 Security 탭(code-scanning)에 보고한다.
-# 결과를 공개 API(api.scorecard.dev)에 게시해 README 배지가 실점수를 표시한다.
+# OpenSSF Scorecard — 레포 보안 관행을 자동 점검한다. 결과는 공개 API(api.scorecard.dev)에
+# 게시해 README 배지·뷰어로 전면 공개한다. Scorecard 출력은 "점수"이지 코드 취약점이 아니므로
+# code-scanning(Security 탭)에는 SARIF를 올리지 않는다 — 그 탭은 CodeQL·Trivy·OSV 같은 실제
+# 코드/의존성 결함 전용으로 둔다. (점수 세부는 scorecard.dev/viewer에서 그대로 확인 가능.)
 on:
   branch_protection_rule: # 브랜치 보호 변경 시 즉시 재평가
   push:
@@ -17,7 +19,6 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
     permissions:
-      security-events: write # SARIF 업로드(Security 탭)
       id-token: write # publish_results의 OIDC 증명(공개 게시용)
 
     steps:
@@ -38,8 +39,3 @@ jobs:
           name: SARIF file
           path: results.sarif
           retention-days: 5
-
-      - name: SARIF 업로드
-        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
-        with:
-          sarif_file: results.sarif
