@@ -13,6 +13,13 @@
   - bypass 대상 없음 (소유자도 우회 불가)
 - [ ] Allow auto-merge 활성 — Renovate `platformAutomerge`의 전제
 
+> **리뷰 필수 설정을 의도적으로 켜지 않는 이유**: 승인자 필수(≥1)·코드오너 리뷰·
+> 최신 푸시 승인 같은 항목은 두 번째 사람이 필요하다. GitHub은 자기 PR을 자기가
+> 승인할 수 없으므로, 단독 유지보수 상태에서 이를 켜면 본인 머지가 영구 차단된다.
+> 이는 버스 팩터·독립 리뷰와 동일한 구조적 한계이며([GOVERNANCE.md](../GOVERNANCE.md),
+> [assurance-case.md](assurance-case.md)에 문서화됨), 명목상 계정을 추가하는 편법은
+> 쓰지 않는다. 신뢰할 수 있는 공동 유지보수자가 생기면 그때 위 항목을 켠다.
+
 ## 보안 기능
 
 - [ ] Secret scanning + Push protection 활성 (공개 레포 무료)
