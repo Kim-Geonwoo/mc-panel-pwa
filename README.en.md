@@ -1,4 +1,4 @@
-# mc_sv-panel
+# mc-panel-pwa
 
 [한국어](README.md) | **English**
 
@@ -11,16 +11,12 @@ player status, real-time performance charts, and a three-way (game ↔ Discord �
 web) chat bridge. A statically-exported Next.js front end served by a single,
 dependency-free Go binary.
 
-<!-- Badges resolve once the repo is public under your account. -->
 [![CI](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **Try it without any backend:** run in demo mode (`PANEL_DEMO=true`) and log in
 > with the code `000000` — the panel serves built-in sample data, no Discord bot
 > or game server required. See [Run locally](#run-locally).
-
-<!-- TODO: add screenshots/GIF here -->
-<!-- ![panel](docs/screenshot-light.png) -->
 
 ## Features
 
@@ -156,7 +152,14 @@ build.sh  build both halves
 
 ## Planned Changes
 
-> The following changes are in progress and will be implemented in a separate session alongside the Discord bot.
+Roadmap, with status per item:
+
+- [ ] Retire the legacy file importer once the private Discord bot fully migrates to `POST /internal/ingest`
+- [ ] Build-time locale for PWA metadata (document title, manifest, push fallback text)
+- [ ] Unit tests for the web UI (the Go API is at ~82% statement coverage)
+- [ ] README screenshots
+
+The two major architecture changes below have landed; they are recorded here as design references.
 
 ### 1. Chat architecture — bot-centric → web-centric ✅ (done)
 
@@ -181,7 +184,7 @@ Reading the entire `chat.json` on every request became linearly slower as messag
 - Driver: `modernc.org/sqlite` — a single pure-Go, CGO-free dependency (build environment stays simple)
 - The cursor is **`id`-based**, not `ts`-based — a ts cursor can skip messages that land in the same millisecond, while the id cursor stays compatible with the existing frontend (`since=last_id`)
 - Timeline (join/leave) events share the same DB, with size managed by a retention window (`PANEL_TIMELINE_RETENTION_DAYS`, default 90 days)
-- During the transition an importer ingests the bot-written `chat.json`/`timeline.json` into the DB every 2s (the first run doubles as the one-time migration). The importer goes away once §1 lands
+- During the transition an importer ingests the bot-written `chat.json`/`timeline.json` into the DB every 2s (the first run doubles as the one-time migration). The importer remains as a fallback for the legacy file channel and is removed together with it (see the roadmap)
 - DB path: `PANEL_DB` (default `<bridge>/panel.db`), WAL mode, single writer
 
 ```sql

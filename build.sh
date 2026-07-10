@@ -16,4 +16,4 @@ cd "$HERE/api"
 go build -o mc_sv-panel .
 
 echo "[build] done."
-echo "        then restart your panel service, e.g.: systemctl --user restart mc_sv-panel"
+echo "        then restart your panel service, e.g.: systemctl --user restart dc-panel-api"
