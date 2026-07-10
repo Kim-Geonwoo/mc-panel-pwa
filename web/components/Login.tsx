@@ -54,7 +54,7 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
       <div className="mt-2 flex flex-col items-center gap-7 sm:gap-8">
         <div className="flex flex-col items-center text-center">
           <Logo size={60} />
-          <h1 className="mt-4 text-2xl font-bold tracking-tight">MC Server Panel</h1>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight">{t("login.title")}</h1>
           <p className="mt-1.5 text-sm text-muted">
             {t("login.subtitle")}
           </p>

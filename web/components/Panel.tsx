@@ -42,12 +42,14 @@ function hhmm(ts: number) {
 type LocalMsg = { key: number; text: string; status: "pending" | "failed" };
 
 // 확정 메시지 병합: id 기준 중복 제거 + 정렬. 낙관적 확정과 폴링이 같은 메시지를
-// 각각 가져와도 한 번만 표시된다.
-function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+// 각각 가져와도 한 번만 표시된다. capTail=false면 최신 3000개 자르기를 건너뛴다 —
+// 과거 로딩(loadOlder)이 붙인 옛 메시지가 곧바로 잘려 나가 스크롤이 제자리걸음하지 않도록.
+function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[], capTail = true): ChatMessage[] {
   if (!incoming.length) return prev;
   const ids = new Set(incoming.map((m) => m.id));
   const kept = prev.filter((m) => !ids.has(m.id));
-  return [...kept, ...incoming].sort((a, b) => a.id - b.id).slice(-3000);
+  const merged = [...kept, ...incoming].sort((a, b) => a.id - b.id);
+  return capTail ? merged.slice(-3000) : merged;
 }
 
 const TABS_KEY = "mc_sv_panel_tabs";
@@ -106,7 +108,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       if (r.messages.length) {
         const el = feedRef.current;
         const prevH = el?.scrollHeight ?? 0;
-        setMsgs((p) => mergeMsgs(p, r.messages));
+        setMsgs((p) => mergeMsgs(p, r.messages, false));
         requestAnimationFrame(() => {
           const el2 = feedRef.current;
           if (el2) el2.scrollTop += el2.scrollHeight - prevH;
@@ -251,14 +253,17 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     }
   }, [msgs, localMsgs]);
 
-  // 채팅 탭 복귀 시 스크롤 복원 — 맨 아래였으면 다시 맨 아래로, 읽던 중이면 그 위치로
+  // 채팅 탭 복귀 시 스크롤 복원 — 맨 아래였으면 다시 맨 아래로, 읽던 중이면 그 위치로.
+  // 맨 아래 복귀는 스크롤 이벤트가 발생하지 않으므로 미확인 수도 여기서 초기화한다.
   useEffect(() => {
     if (tab !== "chat") return;
     requestAnimationFrame(() => {
       const el = feedRef.current;
       if (!el) return;
-      if (atBottomRef.current) scrollToBottom(false);
-      else el.scrollTop = savedScrollRef.current;
+      if (atBottomRef.current) {
+        scrollToBottom(false);
+        setUnread(0);
+      } else el.scrollTop = savedScrollRef.current;
     });
   }, [tab]);
 
