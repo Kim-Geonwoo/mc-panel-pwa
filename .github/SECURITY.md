@@ -20,6 +20,8 @@
    수정이 배포되면 **90일 조정 공시** 상한을 따라, (원하시는 경우) 신고자 크레딧과
    함께 권고를 공개합니다.
 
+해결된 취약점의 신고자는 익명을 원하지 않는 한 수정 릴리스 노트에서 크레딧을 받습니다.
+
 버그 바운티 프로그램은 없으며 개인 프로젝트이지만, 모든 신고는 진지하게 받아들여
 위 타임라인에 따라 처리됩니다. 프로젝트의 보안 강화 내역은 아래 영문 **"How this
 project is hardened"** 절을 참고해 주세요.
@@ -43,6 +45,9 @@ privately through GitHub Security Advisories:
    for high/critical issues. Once the fix is released, the advisory is published
    publicly with credit to the reporter (if you want it), following a
    **90-day coordinated disclosure** cap.
+
+Reporters of resolved vulnerabilities will be credited in the fix's release
+notes unless they prefer anonymity.
 
 There is no bug-bounty program; this is a personal project, but every report is
 taken seriously and handled on the timeline above.
