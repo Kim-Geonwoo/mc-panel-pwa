@@ -60,6 +60,9 @@
   수준)·퍼징·Scorecard로 부분 보완하지만 동등하지는 않다.
 - 외부 침투 테스트는 수행된 적 없다. 취약점 신고는 [SECURITY.md](../.github/SECURITY.md)의
   비공개 채널로 받는다.
+- 세션 토큰은 브라우저 `localStorage`에 보관된다 — XSS가 성립하면 토큰이 유출될 수
+  있는 트레이드오프로, 현재는 엄격한 CSP와 이스케이프된 렌더링(주입 지점 부재)으로
+  완화한다. httpOnly 쿠키 전환을 장기 과제로 검토한다.
 - 가용성은 베스트에포트다(취미 프로젝트).
 
 ---
@@ -126,4 +129,8 @@ malicious dependencies or image tampering (R6).
   but are not equivalent.
 - No external penetration test has been performed. Vulnerability reports are
   received through the private channel in [SECURITY.md](../.github/SECURITY.md).
+- Session tokens live in browser `localStorage` — a trade-off that would expose
+  them to a successful XSS; currently mitigated by the strict CSP and escaped
+  rendering (no injection sinks). Migrating to httpOnly cookies is under
+  consideration as a longer-term improvement.
 - Availability is best-effort (hobby project).

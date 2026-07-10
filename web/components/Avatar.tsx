@@ -22,7 +22,8 @@ export default function Avatar({
   className?: string;
 }) {
   const sources = useMemo(() => {
-    const key = uuid || name || "steve";
+    // 이름은 사용자 입력에서 오므로 경로 구분자(/ ? #) 등이 URL을 망가뜨리지 않게 인코딩한다.
+    const key = encodeURIComponent(uuid || name || "steve");
     return [
       `https://mc-heads.net/avatar/${key}/${px}`, // 1순위(uuid·이름 모두 지원)
       `https://crafthead.net/avatar/${key}/${px}`, // Cloudflare Workers(uuid·이름)

@@ -34,6 +34,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "boot.loading": "불러오는 중…",
 
     // ── 로그인 ──
+    "login.title": "마크서버 웹 패널",
     "login.subtitle": "디스코드에 게시된 6자리 코드를 입력하세요",
     "login.codeAria": "6자리 코드",
     "login.checking": "확인 중…",
@@ -197,6 +198,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "boot.loading": "Loading…",
 
     // ── Login ──
+    "login.title": "MC Server Panel",
     "login.subtitle": "Enter the 6-digit code posted in Discord",
     "login.codeAria": "6-digit code",
     "login.checking": "Checking…",

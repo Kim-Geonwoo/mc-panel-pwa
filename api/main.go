@@ -22,6 +22,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -611,7 +612,7 @@ type server struct {
 	sessions      *sessionStore   // 세션 스토어
 	loginRL       *rateLimiter    // IP별 로그인 시도 횟수를 셉니다
 	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
-	chatRL        *rateLimiter    // IP별 채팅 전송 시도 횟수를 셉니다
+	chatRL        *rateLimiter    // 세션(sid)별 채팅 전송 시도 횟수를 셉니다
 	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	store         *store          // 채팅·타임라인 SQLite 저장소 (데모 모드에서는 nil)
 	vapid         vapidKeys       // 웹 푸시 VAPID 키 (데모 모드·로드 실패 시 빈 값 → 푸시 비활성)
@@ -762,16 +763,10 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // 응답속도 추정으로 로그인 코드를 알아내는 공격 방지용 코드
 
 // subtleNE는 두 문자열 a와 b가 서로 다른지를 비교합니다. 걸리는 시간이 내용에 따라 달라지지 않도록
-// 항상 일정한 시간(상수 시간)으로 처리해서, 응답 속도를 재어 코드를 알아내는 타이밍 공격을 막습니다.
+// 표준 라이브러리의 상수시간 비교(crypto/subtle)로 처리해서, 응답 속도를 재어 코드를
+// 알아내는 타이밍 공격을 막습니다. (길이가 다르면 즉시 다름 — 길이는 비밀이 아닙니다)
 func subtleNE(a, b string) bool {
-	if len(a) != len(b) {
-		return true
-	}
-	var v byte
-	for i := 0; i < len(a); i++ {
-		v |= a[i] ^ b[i]
-	}
-	return v != 0
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) != 1
 }
 
 // handleLogout - 로그아웃 처리 (공통 체인: s.api("POST"))
@@ -1033,7 +1028,7 @@ func (s *server) handleChat(w http.ResponseWriter, r *http.Request, sid string, 
 			s.writeJSON(w, http.StatusConflict, map[string]string{"error": "no_nickname"})
 			return
 		}
-		// IP별 채팅 전송 시도 횟수 제한 (하단의 rateLimiter 구조체에서 config 할수있음)
+		// 세션(sid)별 채팅 전송 시도 횟수 제한 (하단의 rateLimiter 구조체에서 config 할수있음)
 		if !s.chatRL.allow(sid) {
 			s.writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "slow_down"})
 			return

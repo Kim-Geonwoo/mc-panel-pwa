@@ -1,4 +1,4 @@
-# mc_sv-panel
+# mc-panel-pwa
 
 **한국어** | [English](README.en.md)
 
@@ -10,16 +10,12 @@
 성능 차트, 그리고 게임 ↔ 디스코드 ↔ 웹을 잇는 3방향 채팅을 제공합니다. 정적으로 익스포트한
 Next.js 프런트엔드를, 외부 의존성이 없는 단일 Go 바이너리가 서빙합니다.
 
-<!-- 저장소가 본인 계정으로 공개되면 배지가 정상 동작합니다. -->
 [![CI](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **백엔드 없이 바로 실행해 보기:** 데모 모드(`PANEL_DEMO=true`)로 띄우고 로그인 코드
 > `000000`을 입력하면, 디스코드 봇이나 게임 서버 없이 내장 샘플 데이터로 동작합니다.
 > [로컬 실행](#로컬-실행) 참고.
-
-<!-- TODO: 스크린샷/GIF 추가 -->
-<!-- ![panel](docs/screenshot-light.png) -->
 
 ## 주요 기능
 
@@ -148,7 +144,14 @@ build.sh  양쪽 빌드
 
 ## 패치 예정
 
-> 아래 변경사항은 현재 개발 중이며, 별도 세션에서 별도의 미공개 디스코드 봇과 함께 작업할 예정입니다.
+로드맵(항목별 상태):
+
+- [ ] 미공개 디스코드 봇이 `POST /internal/ingest`로 완전히 이전되면 레거시 파일 임포터 제거
+- [ ] PWA 메타데이터(문서 제목·매니페스트·푸시 폴백 문구)의 빌드 타임 로케일 적용
+- [ ] 웹 UI 단위 테스트 도입(Go API는 문장 커버리지 ~82%)
+- [ ] README 스크린샷 추가
+
+아래 두 건의 주요 아키텍처 변경은 적용이 완료되었으며, 설계 참고용 기록으로 남깁니다.
 
 ### 1. 채팅 아키텍처 — 봇 중심 → 웹 중심 전환 ✅ (적용됨)
 
@@ -173,7 +176,7 @@ build.sh  양쪽 빌드
 - 드라이버: `modernc.org/sqlite` — CGO가 필요 없는 순수 Go 의존성 1개 (빌드 환경은 그대로 단순)
 - 커서는 `ts`가 아니라 **`id` 기준**입니다 — 같은 ms에 메시지가 몰리면 ts 커서는 메시지를 건너뛸 수 있고, id 커서는 기존 프런트(`since=last_id`)와 그대로 호환됩니다
 - 타임라인(join/leave)도 같은 DB로 통합하고 보존 기간(`PANEL_TIMELINE_RETENTION_DAYS`, 기본 90일)으로 크기를 관리합니다
-- 전환기에는 봇이 쓰는 `chat.json`/`timeline.json`을 임포터가 2초 주기로 DB에 반영합니다(첫 실행 시 전체 마이그레이션 겸용). §1 완료 시 임포터는 제거됩니다
+- 전환기에는 봇이 쓰는 `chat.json`/`timeline.json`을 임포터가 2초 주기로 DB에 반영합니다(첫 실행 시 전체 마이그레이션 겸용). 임포터는 레거시 파일 채널의 폴백으로 남아 있으며, 그 채널과 함께 제거됩니다(로드맵 참고)
 - DB 경로: `PANEL_DB` (기본 `<bridge>/panel.db`), WAL 모드·단일 라이터
 
 ```sql
