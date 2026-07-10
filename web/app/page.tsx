@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { getMe, getToken, UnauthorizedError } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import Login from "../components/Login";
 import NicknameSetup from "../components/NicknameSetup";
 import Panel from "../components/Panel";
@@ -11,6 +12,7 @@ import PhoneFrame from "../components/PhoneFrame";
 type Stage = "boot" | "login" | "nickname" | "app";
 
 export default function Home() {
+  const { t } = useI18n();
   const [stage, setStage] = useState<Stage>("boot");
 
   // 진입 화면 결정: 토큰 없음 -> 로그인, 토큰 있으나 닉네임 없음 -> 닉네임, 그 외 -> 앱.
@@ -47,7 +49,7 @@ export default function Home() {
       <AnimatePresence mode="wait">
         {stage === "boot" && (
           <motion.div key="boot" {...fade} className="flex flex-1 items-center justify-center text-muted">
-            <span className="animate-pulse">불러오는 중…</span>
+            <span className="animate-pulse">{t("boot.loading")}</span>
           </motion.div>
         )}
         {stage === "login" && (

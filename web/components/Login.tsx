@@ -3,10 +3,12 @@
 import { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { login } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 
 export default function Login({ onAuthed }: { onAuthed: () => void }) {
+  const { t } = useI18n();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +27,8 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
     } catch (e) {
       const msg =
         e instanceof Error && e.message === "too_many"
-          ? "시도가 너무 많습니다. 잠시 후 다시 시도하세요."
-          : "코드가 올바르지 않습니다.";
+          ? t("login.errTooMany")
+          : t("login.errInvalid");
       setError(msg);
       setShake((s) => s + 1);
       setCode("");
@@ -54,7 +56,7 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
           <Logo size={60} />
           <h1 className="mt-4 text-2xl font-bold tracking-tight">MC Server Panel</h1>
           <p className="mt-1.5 text-sm text-muted">
-            디스코드에 게시된 6자리 코드를 입력하세요
+            {t("login.subtitle")}
           </p>
         </div>
 
@@ -95,7 +97,7 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
             autoComplete="one-time-code"
             maxLength={6}
             autoFocus
-            aria-label="6자리 코드"
+            aria-label={t("login.codeAria")}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           />
         </motion.div>
@@ -110,7 +112,7 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
           onClick={() => submit(code)}
           className="w-full max-w-[330px] rounded-xl bg-accent py-3.5 font-bold text-accent-fg shadow-card transition active:scale-[0.99] disabled:opacity-40"
         >
-          {busy ? "확인 중…" : "입장하기"}
+          {busy ? t("login.checking") : t("login.submit")}
         </button>
       </div>
     </div>

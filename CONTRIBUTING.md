@@ -43,6 +43,14 @@
   외부 기여자는 영어로 작성해도 무방합니다.
 - PR 설명은 한국어·영어 병기를 권장하지만, 영어만 작성해도 받아들여집니다.
 
+### 기여의 법적 확약 (DCO 상당)
+
+- PR·패치를 제출하는 것은 **해당 기여를 할 법적 권한이 본인에게 있으며, 기여가 이
+  저장소의 [MIT 라이선스](LICENSE)로 제공됨을 확약**하는 행위입니다
+  ([GitHub 서비스 약관 D.6](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license)의
+  inbound=outbound 원칙과 동일). 원하시면 [DCO](https://developercertificate.org/)
+  형식의 `Signed-off-by:` 트레일러를 커밋에 추가해도 좋습니다.
+
 ### 버그 신고
 
 - 일반 버그는 GitHub 이슈로 신고해 주세요.
@@ -87,6 +95,15 @@ them; this is checked in code review via the PR checklist.
 - Keep commits concise and atomic. The maintainer uses Korean subjects, but
   English is perfectly fine for external contributors.
 - Bilingual KO/EN PR descriptions are appreciated, but English-only is accepted.
+
+### Legal assertion for contributions (DCO-equivalent)
+
+- By submitting a pull request or patch, **you assert that you are legally
+  authorized to make the contribution and that it is provided under this
+  repository's [MIT license](LICENSE)** (the inbound=outbound principle of
+  [GitHub Terms of Service D.6](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license)).
+  You are welcome to additionally add a [DCO](https://developercertificate.org/)-style
+  `Signed-off-by:` trailer to your commits.
 
 ### Reporting
 

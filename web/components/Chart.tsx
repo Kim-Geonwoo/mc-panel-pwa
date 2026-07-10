@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { useI18n } from "../lib/i18n";
 
 // 실시간 시계열용 경량 uPlot 라인 차트 래퍼(한 번만 생성하고 setData로 데이터를 명령형으로
 // 갱신 — 약 2초 간격 스트리밍 갱신에 충분히 빠르다).
@@ -23,6 +24,7 @@ export default function Chart({
   height?: number;
   threshold?: number; // 수평 기준선 값(선택). 두 번째 시리즈로 그린다
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
 
@@ -36,7 +38,7 @@ export default function Chart({
       { label, stroke: color, width: 2, points: { show: false } },
     ];
     if (threshold != null) {
-      series.push({ label: "기준", stroke: "rgba(237,66,69,0.5)", width: 1, dash: [4, 4], points: { show: false } });
+      series.push({ label: t("chart.threshold"), stroke: "rgba(237,66,69,0.5)", width: 1, dash: [4, 4], points: { show: false } });
     }
     const opts: uPlot.Options = {
       width: el.clientWidth || 320,
