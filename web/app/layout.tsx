@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { LangProvider } from "../lib/i18n";
 import RegisterSW from "../components/RegisterSW";
 import ViewportFix from "../components/ViewportFix";
 import VpDebug from "../components/VpDebug";
@@ -46,7 +47,7 @@ export default function RootLayout({
     <html lang="ko" suppressHydrationWarning>
       <body className="font-sans antialiased">
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
-        {children}
+        <LangProvider>{children}</LangProvider>
         <ViewportFix />
         <RegisterSW />
         <VpDebug />
