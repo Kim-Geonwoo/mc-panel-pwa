@@ -9,6 +9,7 @@ import {
   subscribePush,
   unsubscribePush,
 } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 
 // 설정 바텀시트 — 알림·탭 표시·닉네임 변경·로그아웃을 한곳에 모은다.
 // ProfileSheet와 동일한 오버레이 패턴(모바일 하단 시트 / sm+ 중앙 카드).
@@ -17,10 +18,10 @@ import {
 
 const PUSH_TOPICS_KEY = "mc_sv_panel_push_topics";
 
-// events에 담겨 오는 종류 코드 → 표시 라벨. events에 있는 것만 렌더한다.
+// events에 담겨 오는 종류 코드 → 표시 라벨 i18n 키. events에 있는 것만 렌더한다.
 const KIND_LABEL: Record<string, string> = {
-  server: "서버 상태 (다운/복구)",
-  join: "플레이어 접속",
+  server: "settings.pushKindServer",
+  join: "settings.pushKindJoin",
 };
 
 function b64ToU8(b64: string): Uint8Array<ArrayBuffer> {
@@ -44,6 +45,8 @@ export default function SettingsSheet({
   onLogout: () => void;
   onClose: () => void;
 }) {
+  const { lang, setLang, t } = useI18n();
+
   // ── 알림 ──────────────────────────────────────────────────────────────────
   const [pushSupported, setPushSupported] = useState(true);
   const [config, setConfig] = useState<{ key: string; events: string[] } | null>(null);
@@ -164,8 +167,8 @@ export default function SettingsSheet({
     } catch (e) {
       setNickErr(
         e instanceof Error && e.message === "taken"
-          ? "이미 사용 중인 닉네임입니다"
-          : "닉네임은 2–16자여야 합니다",
+          ? t("settings.nickErrTaken")
+          : t("settings.nickErrLength"),
       );
     } finally {
       setNickBusy(false);
@@ -190,15 +193,15 @@ export default function SettingsSheet({
         transition={{ duration: 0.22 }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="설정"
+        aria-label={t("settings.title")}
         className="pb-safe max-h-[85vh] w-full max-w-[420px] overflow-y-auto rounded-t-2xl border-t border-line bg-card p-5 shadow-card sm:rounded-2xl sm:border"
       >
         <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-line sm:hidden" />
         <div className="flex items-center">
-          <h2 className="text-base font-bold text-fg">설정</h2>
+          <h2 className="text-base font-bold text-fg">{t("settings.title")}</h2>
           <button
             onClick={onClose}
-            aria-label="닫기"
+            aria-label={t("common.close")}
             className="ml-auto grid h-8 w-8 place-items-center rounded-full border border-line text-muted transition-colors hover:text-fg"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -210,9 +213,9 @@ export default function SettingsSheet({
         <div className="mt-4 space-y-3">
         {/* ① 알림 */}
         <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">알림</h3>
+          <h3 className="text-sm font-semibold text-fg">{t("settings.pushTitle")}</h3>
           {!pushSupported ? (
-            <p className="mt-2 text-[11px] leading-relaxed text-muted">이 브라우저는 푸시 알림을 지원하지 않습니다.</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushUnsupported")}</p>
           ) : !pushReady ? (
             <div className="mt-2 space-y-2.5">
               <div className="h-9 w-full rounded-xl bg-line motion-safe:animate-pulse" />
@@ -220,21 +223,21 @@ export default function SettingsSheet({
               <div className="h-6 w-1/2 rounded bg-line motion-safe:animate-pulse" />
             </div>
           ) : !pushOffered ? (
-            <p className="mt-2 text-[11px] leading-relaxed text-muted">이 서버는 푸시 알림을 제공하지 않습니다.</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushNotOffered")}</p>
           ) : (
             <>
               <div className="mt-2 flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium text-fg">푸시 알림</div>
+                  <div className="text-sm font-medium text-fg">{t("settings.pushLabel")}</div>
                   <div className="text-xs text-muted">
-                    {subscribed ? "이 기기에서 구독 중" : "꺼짐"}
+                    {subscribed ? t("settings.pushSubscribed") : t("settings.pushOff")}
                   </div>
                 </div>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={subscribed}
-                  aria-label="푸시 알림 구독"
+                  aria-label={t("settings.pushToggleAria")}
                   onClick={toggleMaster}
                   disabled={pushBusy}
                   className={[
@@ -258,7 +261,7 @@ export default function SettingsSheet({
                       key={ev}
                       checked={topics.includes(ev)}
                       onChange={() => toggleKind(ev)}
-                      label={KIND_LABEL[ev]}
+                      label={t(KIND_LABEL[ev])}
                     />
                   ))}
               </div>
@@ -268,25 +271,46 @@ export default function SettingsSheet({
 
         {/* ② 탭 표시 */}
         <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">탭 표시</h3>
+          <h3 className="text-sm font-semibold text-fg">{t("settings.tabsTitle")}</h3>
           <div className="mt-1 space-y-0.5">
             <CheckRow
               checked={tabPrefs.perf}
               onChange={() => onTabPrefs({ ...tabPrefs, perf: !tabPrefs.perf })}
-              label="성능 탭"
+              label={t("settings.tabsPerf")}
             />
             <CheckRow
               checked={tabPrefs.timeline}
               onChange={() => onTabPrefs({ ...tabPrefs, timeline: !tabPrefs.timeline })}
-              label="타임라인 탭"
+              label={t("settings.tabsTimeline")}
             />
           </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted">채팅 탭은 항상 표시됩니다.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted">{t("settings.tabsNote")}</p>
         </section>
 
-        {/* ③ 닉네임 변경 */}
+        {/* ③ 언어 — 테마 토글과 같은 표시 계열 설정 */}
         <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">닉네임 변경</h3>
+          <h3 className="text-sm font-semibold text-fg">{t("settings.langTitle")}</h3>
+          <div className="mt-2 flex gap-1 rounded-xl bg-card p-1">
+            {(["ko", "en"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setLang(l)}
+                aria-pressed={lang === l}
+                className={[
+                  "min-h-[40px] flex-1 rounded-lg text-sm font-medium transition-colors",
+                  lang === l ? "bg-accent text-accent-fg shadow-card" : "text-muted hover:text-fg",
+                ].join(" ")}
+              >
+                {l === "ko" ? "한국어" : "English"}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* ④ 닉네임 변경 */}
+        <section className="rounded-2xl border border-line bg-card2 p-4">
+          <h3 className="text-sm font-semibold text-fg">{t("settings.nickTitle")}</h3>
           <div className="mt-2 flex items-center gap-2">
             <input
               value={nickInput}
@@ -301,8 +325,8 @@ export default function SettingsSheet({
                 if (e.key === "Enter") saveNick();
               }}
               maxLength={16}
-              aria-label="새 닉네임"
-              placeholder="닉네임 (2–16자)"
+              aria-label={t("settings.nickAria")}
+              placeholder={t("settings.nickPlaceholder")}
               className="min-w-0 flex-1 rounded-xl border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
             />
             <button
@@ -311,7 +335,7 @@ export default function SettingsSheet({
               disabled={!nickValid || nickBusy || trimmed === nick}
               className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-fg transition active:scale-[0.99] disabled:opacity-40"
             >
-              {nickBusy ? "저장 중…" : "저장"}
+              {nickBusy ? t("settings.nickSaving") : t("common.save")}
             </button>
           </div>
           {nickErr && (
@@ -319,10 +343,10 @@ export default function SettingsSheet({
               {nickErr}
             </div>
           )}
-          {nickOk && <div className="mt-1.5 text-xs text-accent">닉네임이 변경되었습니다.</div>}
+          {nickOk && <div className="mt-1.5 text-xs text-accent">{t("settings.nickChanged")}</div>}
         </section>
 
-        {/* ④ 로그아웃 */}
+        {/* ⑤ 로그아웃 */}
         <section className="rounded-2xl border border-line bg-card2 p-4">
           <button
             type="button"
@@ -332,7 +356,7 @@ export default function SettingsSheet({
             }}
             className="w-full rounded-xl border border-line py-2.5 text-sm font-semibold text-danger transition-colors hover:bg-card active:scale-[0.99]"
           >
-            로그아웃
+            {t("common.logout")}
           </button>
         </section>
         </div>

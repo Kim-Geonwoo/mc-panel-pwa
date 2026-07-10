@@ -12,6 +12,7 @@ import {
   Status,
   UnauthorizedError,
 } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import Avatar from "./Avatar";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
@@ -25,10 +26,10 @@ type Player = Status["players"][number];
 const STATUS_MS = 60000; // 접속현황 갱신: 1분
 const CHAT_MS = 2000;
 
-const SRC: Record<ChatMessage["source"], { label: string; cls: string }> = {
-  game: { label: "게임", cls: "bg-card2 text-accent" },
-  discord: { label: "디스코드", cls: "bg-card2 text-indigo-400" },
-  web: { label: "웹", cls: "bg-card2 text-amber-500" },
+const SRC: Record<ChatMessage["source"], { labelKey: string; cls: string }> = {
+  game: { labelKey: "chat.sourceGame", cls: "bg-card2 text-accent" },
+  discord: { labelKey: "chat.sourceDiscord", cls: "bg-card2 text-indigo-400" },
+  web: { labelKey: "chat.sourceWeb", cls: "bg-card2 text-amber-500" },
 };
 
 function hhmm(ts: number) {
@@ -52,6 +53,7 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] 
 const TABS_KEY = "mc_sv_panel_tabs";
 
 export default function Panel({ onLogout }: { onLogout: () => void }) {
+  const { t } = useI18n();
   const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 성능/타임라인 탭 표시 여부(채팅은 항상 표시). 정적 export 프리렌더에서 localStorage가
@@ -265,8 +267,8 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
   // 폴링 커서(sinceRef)는 건드리지 않는다 — 내 메시지와 남 메시지 사이의 id를
   // 건너뛰지 않도록. 중복은 mergeMsgs가 id로 걸러 준다.
   async function send(retry?: LocalMsg) {
-    const t = retry ? retry.text : text.trim();
-    if (!t || sending) return;
+    const txt = retry ? retry.text : text.trim();
+    if (!txt || sending) return;
     const key = retry ? retry.key : Date.now();
     atBottomRef.current = true; // 내가 보낸 메시지로 이동
     setSending(true);
@@ -274,15 +276,15 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     if (retry) {
       setLocalMsgs((p) => p.map((m) => (m.key === key ? { ...m, status: "pending" } : m)));
     } else {
-      setLocalMsgs((p) => [...p, { key, text: t, status: "pending" }]);
+      setLocalMsgs((p) => [...p, { key, text: txt, status: "pending" }]);
       setText("");
     }
     try {
-      const r = await sendChat(t);
+      const r = await sendChat(txt);
       setLocalMsgs((p) => p.filter((m) => m.key !== key));
       if (r.id && r.ts) {
         setMsgs((p) =>
-          mergeMsgs(p, [{ id: r.id!, ts: r.ts!, source: "web", user: nick || "나", uuid: "", text: t }]),
+          mergeMsgs(p, [{ id: r.id!, ts: r.ts!, source: "web", user: nick || t("chat.me"), uuid: "", text: txt }]),
         );
       } else {
         // 데모 등 id 미반환 응답 — 즉시 재폴링으로 반영
@@ -297,8 +299,8 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       setLocalMsgs((p) => p.map((m) => (m.key === key ? { ...m, status: "failed" } : m)));
       setChatErr(
         e instanceof Error && e.message === "slow_down"
-          ? "너무 빨라요. 잠시 후 다시 보내세요."
-          : "전송 실패 — 메시지를 눌러 재시도하세요.",
+          ? t("chat.errSlowDown")
+          : t("chat.errSendFailed"),
       );
     } finally {
       setSending(false);
@@ -312,12 +314,12 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* 헤더 */}
       <header className="pt-safe flex shrink-0 items-center justify-between px-5 pb-3">
-        <h1 className="text-lg font-bold tracking-tight">마크서버</h1>
+        <h1 className="text-lg font-bold tracking-tight">{t("panel.title")}</h1>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <button
             onClick={() => setSettingsOpen(true)}
-            aria-label="설정"
+            aria-label={t("settings.title")}
             className="grid h-9 w-9 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:text-fg active:scale-95"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -331,7 +333,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
       {/* 연결 끊김 배너 — 오프라인·서버 무응답 공통 */}
       {connLost && (
         <div className="mx-5 mb-2 shrink-0 rounded-xl border border-line bg-card px-3 py-1.5 text-center text-xs font-medium text-danger">
-          연결이 끊겼습니다 · 자동 재연결 중
+          {t("panel.connLost")}
         </div>
       )}
 
@@ -346,14 +348,14 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               <span className={["relative inline-flex h-3 w-3 rounded-full", up ? "bg-accent" : "bg-danger"].join(" ")} />
             </span>
             <div className="flex flex-col">
-              <span className="font-semibold">{up ? "서버 온라인" : "서버 오프라인"}</span>
+              <span className="font-semibold">{up ? t("panel.serverOnline") : t("panel.serverOffline")}</span>
               <span className="flex items-center gap-1 text-xs text-muted">
                 {up ? (
                   <>
                     TPS {status && status.tps >= 0 ? status.tps.toFixed(1) : "—"}
                     <button
                       onClick={() => setTpsOpen(true)}
-                      aria-label="TPS 설명"
+                      aria-label={t("panel.tpsInfoAria")}
                       className="grid h-4 w-4 place-items-center rounded-full border border-line text-[10px] leading-none text-muted transition-colors hover:text-fg"
                     >
                       i
@@ -361,28 +363,28 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                     {tpsHist.length >= 2 && (
                       <span
                         className={status && status.tps < 18 ? "text-danger" : "text-accent"}
-                        aria-label="최근 TPS 추세"
+                        aria-label={t("panel.tpsTrendAria")}
                       >
                         <Sparkline points={tpsHist} />
                       </span>
                     )}
                   </>
                 ) : (
-                  "현재 서버가 꺼져 있습니다"
+                  t("panel.serverDown")
                 )}
               </span>
             </div>
             <button
               onClick={() => setPlayersOpen((v) => !v)}
               className="ml-auto text-right"
-              aria-label="접속자 목록"
+              aria-label={t("panel.playersListAria")}
               aria-expanded={playersOpen}
             >
               <div className="text-2xl font-bold tabular-nums text-accent">
                 {up ? status?.count ?? 0 : 0}
                 <span className="text-base font-semibold text-muted"> / {status?.max ?? 20}</span>
               </div>
-              <div className="text-[11px] text-muted">접속자 {up && players.length ? "▾" : ""}</div>
+              <div className="text-[11px] text-muted">{t("panel.playersLabel")} {up && players.length ? "▾" : ""}</div>
             </button>
           </div>
 
@@ -400,7 +402,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                       <button
                         key={p.uuid || p.name}
                         onClick={() => setProfile(p)}
-                        aria-label={`${p.name} 프로필 보기`}
+                        aria-label={t("panel.viewProfileAria", { name: p.name })}
                         className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-card2"
                       >
                         <Avatar uuid={p.uuid} name={p.name} px={24} className="rounded" />
@@ -411,7 +413,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                       </button>
                     ))
                   ) : (
-                    <div className="text-sm text-muted">아무도 접속해 있지 않습니다</div>
+                    <div className="text-sm text-muted">{t("panel.noPlayers")}</div>
                   )}
                 </div>
               </motion.div>
@@ -419,12 +421,12 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
           </AnimatePresence>
         </div>
         <div className="px-1 pt-1.5 text-[11px] text-muted">
-          역대 최대 동시접속 {status?.max_concurrent ?? 0}명 · 현황 1분마다 갱신
+          {t("panel.peak", { n: status?.max_concurrent ?? 0 })}
         </div>
       </div>
 
       {/* 탭 */}
-      <div role="tablist" aria-label="패널 탭" className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
+      <div role="tablist" aria-label={t("panel.tabsAria")} className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
         {(["chat", "perf", "timeline"] as const)
           .filter((tb) => tb === "chat" || (tb === "perf" ? tabPrefs.perf : tabPrefs.timeline))
           .map((tb) => (
@@ -438,7 +440,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               tab === tb ? "bg-card text-fg shadow-card" : "text-muted hover:text-fg",
             ].join(" ")}
           >
-            {tb === "chat" ? "채팅" : tb === "perf" ? "성능" : "타임라인"}
+            {tb === "chat" ? t("tab.chat") : tb === "perf" ? t("tab.perf") : t("tab.timeline")}
             {tb === "chat" && unread > 0 && tab !== "chat" && (
               <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold tabular-nums text-accent-fg">
                 {unread > 99 ? "99+" : unread}
@@ -459,7 +461,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
         className="mt-2 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-2 [-webkit-overflow-scrolling:touch]"
       >
         {loadingOlder && (
-          <div className="py-1 text-center text-[11px] text-muted">이전 메시지 불러오는 중…</div>
+          <div className="py-1 text-center text-[11px] text-muted">{t("chat.loadingOlder")}</div>
         )}
         {msgs.length === 0 && localMsgs.length === 0 ? (
           !chatLoaded ? (
@@ -475,7 +477,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               ))}
             </div>
           ) : (
-            <div className="grid h-full place-items-center text-sm text-muted">아직 채팅이 없습니다</div>
+            <div className="grid h-full place-items-center text-sm text-muted">{t("chat.empty")}</div>
           )
         ) : (
           msgs.map((m, i) => {
@@ -498,7 +500,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-sm font-semibold">{m.user}</span>
                     <span className={["rounded px-1.5 py-0.5 text-[11px] font-medium", meta.cls].join(" ")}>
-                      {meta.label}
+                      {t(meta.labelKey)}
                     </span>
                     <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted">{hhmm(m.ts)}</span>
                   </div>
@@ -517,14 +519,14 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             className={["flex items-start gap-2.5", m.status === "pending" ? "opacity-60" : ""].join(" ")}
           >
             <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded bg-card2 text-sm font-bold text-muted">
-              {(nick || "나").charAt(0).toUpperCase()}
+              {(nick || t("chat.me")).charAt(0).toUpperCase()}
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
-                <span className="truncate text-sm font-semibold">{nick || "나"}</span>
-                <span className="rounded bg-card2 px-1.5 py-0.5 text-[11px] font-medium text-amber-500">웹</span>
+                <span className="truncate text-sm font-semibold">{nick || t("chat.me")}</span>
+                <span className="rounded bg-card2 px-1.5 py-0.5 text-[11px] font-medium text-amber-500">{t("chat.sourceWeb")}</span>
                 <span className="ml-auto shrink-0 text-[11px] text-muted">
-                  {m.status === "pending" ? "전송 중…" : ""}
+                  {m.status === "pending" ? t("chat.pending") : ""}
                 </span>
               </div>
               <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg">{m.text}</div>
@@ -534,7 +536,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
                   className="mt-0.5 flex items-center gap-1 text-xs font-medium text-danger"
                 >
                   <RetryIcon />
-                  전송 실패 · 재시도
+                  {t("chat.retry")}
                 </button>
               )}
             </div>
@@ -550,11 +552,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
             atBottomRef.current = true;
             scrollToBottom(true);
           }}
-          aria-label="새 메시지로 이동"
+          aria-label={t("chat.jumpAria")}
           className="absolute bottom-16 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-card px-3 py-1.5 text-xs font-semibold text-accent shadow-card active:scale-95"
         >
           <DownIcon />
-          새 메시지 <span className="tabular-nums">{unread > 99 ? "99+" : unread}</span>
+          {t("chat.newMessages")} <span className="tabular-nums">{unread > 99 ? "99+" : unread}</span>
         </button>
       )}
 
@@ -575,15 +577,15 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               setTimeout(() => scrollToBottom(false), 300); // 키보드가 안정된 뒤
             }}
             maxLength={256}
-            aria-label="채팅 메시지 입력"
-            placeholder="메시지를 입력하세요"
+            aria-label={t("chat.inputAria")}
+            placeholder={t("chat.placeholder")}
             className="min-w-0 flex-1 rounded-full border border-line bg-card px-4 py-2.5 text-sm outline-none focus:border-accent"
           />
           <button
             onClick={() => send()}
             disabled={sending || !text.trim()}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-accent text-accent-fg transition active:scale-95 disabled:opacity-40"
-            aria-label="전송"
+            aria-label={t("chat.sendAria")}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 11.5 21 3l-8.5 18-2.2-7.3L3 11.5Z" />
@@ -637,17 +639,17 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-[300px] rounded-2xl border border-line bg-card p-5 shadow-card"
             >
-              <h2 className="text-base font-bold">TPS란?</h2>
+              <h2 className="text-base font-bold">{t("tps.title")}</h2>
               <p className="mt-2 text-sm leading-relaxed text-muted">
-                TPS(Ticks Per Second)는 서버가 1초에 처리하는 게임 틱 수입니다. 정상값은{" "}
-                <span className="font-semibold text-fg">20</span>이며, 값이 낮을수록 서버가 버거운
-                상태(렉)를 의미합니다.
+                {t("tps.bodyBefore")}
+                <span className="font-semibold text-fg">20</span>
+                {t("tps.bodyAfter")}
               </p>
               <button
                 onClick={() => setTpsOpen(false)}
                 className="mt-4 w-full rounded-xl bg-accent py-2.5 text-sm font-bold text-accent-fg active:scale-[0.99]"
               >
-                확인
+                {t("common.confirm")}
               </button>
             </motion.div>
           </motion.div>

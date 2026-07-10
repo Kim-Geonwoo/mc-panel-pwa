@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useI18n } from "../lib/i18n";
 
 // 라이트/다크 토글. 초기값은 시스템 설정을 따른다(layout에서 페인트 전에 설정).
 // 수동 선택은 localStorage에 저장되어 이후 우선한다. 수동 선택이 없는 동안에는
 // OS 테마를 실시간으로 계속 추적한다.
 export default function ThemeToggle() {
+  const { t } = useI18n();
   const [dark, setDark] = useState(false);
   const [explicit, setExplicit] = useState(false);
 
@@ -43,7 +45,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      aria-label={dark ? "라이트 모드로 전환" : "다크 모드로 전환"}
+      aria-label={dark ? t("theme.toLight") : t("theme.toDark")}
       className="grid h-9 w-9 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:text-fg active:scale-95"
     >
       {dark ? (

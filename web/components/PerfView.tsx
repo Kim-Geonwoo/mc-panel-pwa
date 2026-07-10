@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchPerf, Perf, PerfDim, UnauthorizedError } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import Chart from "./Chart";
 
 const PERF_MS = 2000;
@@ -13,6 +14,7 @@ export default function PerfView({
   serverUp: boolean;
   onLogout: () => void;
 }) {
+  const { t } = useI18n();
   const [perf, setPerf] = useState<Perf | null>(null);
   const [err, setErr] = useState(false);
   // 엔티티 수는 약 6초마다 샘플링(비용 절감). 깜빡임을 막기 위해 마지막 스냅샷을 유지한다
@@ -74,9 +76,7 @@ export default function PerfView({
   if (!perf.tracking && hist.length === 0) {
     return (
       <div className="grid flex-1 place-items-center px-8 text-center text-sm leading-relaxed text-muted">
-        {serverUp
-          ? "성능 추적 대기 — 플레이어가 1명 이상 접속하면 실시간 추적이 시작됩니다."
-          : "서버가 꺼져 있습니다."}
+        {serverUp ? t("perf.waiting") : t("perf.serverDown")}
       </div>
     );
   }
@@ -91,42 +91,42 @@ export default function PerfView({
   return (
     <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-2">
       <div className="grid grid-cols-3 gap-2">
-        <Stat label="MSPT 평균" value={cur ? cur.mspt.toFixed(1) : "—"} unit="ms" bad={!!cur && cur.mspt >= 50} />
+        <Stat label={t("perf.statMsptAvg")} value={cur ? cur.mspt.toFixed(1) : "—"} unit="ms" bad={!!cur && cur.mspt >= 50} />
         <Stat label="MSPT p95" value={p95 >= 0 ? p95.toFixed(1) : "—"} unit="ms" bad={p95 >= 50} />
         <Stat label="TPS" value={cur ? cur.tps.toFixed(1) : "—"} unit="" bad={!!cur && cur.tps < 18} />
-        <Stat label="스파이크" value={cur ? String(cur.spikes_100) : "—"} unit="회" bad={!!cur && cur.spikes_100 > 0} />
-        <Stat label="최대 틱" value={cur ? cur.period_max.toFixed(0) : "—"} unit="ms" bad={!!cur && cur.period_max >= 100} />
-        <Stat label="접속자" value={cur ? String(cur.count) : "—"} unit="명" />
+        <Stat label={t("perf.statSpikes")} value={cur ? String(cur.spikes_100) : "—"} unit={t("perf.unitTimes")} bad={!!cur && cur.spikes_100 > 0} />
+        <Stat label={t("perf.statMaxTick")} value={cur ? cur.period_max.toFixed(0) : "—"} unit="ms" bad={!!cur && cur.period_max >= 100} />
+        <Stat label={t("perf.statPlayers")} value={cur ? String(cur.count) : "—"} unit={t("perf.unitPeople")} />
       </div>
 
       <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
-        <div className="mb-1 text-xs font-medium text-muted">TPS · 최근 ~12분</div>
+        <div className="mb-1 text-xs font-medium text-muted">{t("perf.chartTps")}</div>
         <Chart data={tpsData} label="TPS" color="#36d36c" min={0} max={20} />
       </div>
       <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
-        <div className="mb-1 text-xs font-medium text-muted">MSPT (ms) · 50ms 초과 시 렉</div>
+        <div className="mb-1 text-xs font-medium text-muted">{t("perf.chartMspt")}</div>
         <Chart data={msptData} label="MSPT" color={laggy ? "#ef4444" : "#5b8def"} min={0} threshold={50} />
       </div>
 
       <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
-        <div className="mb-2 text-xs font-medium text-muted">차원별 부하 (엔티티 · 로드청크)</div>
+        <div className="mb-2 text-xs font-medium text-muted">{t("perf.chartDims")}</div>
         {dims.length ? (
           <div className="space-y-1.5">
             {dims.map((d) => (
               <div key={d.name} className="flex items-center gap-2 text-sm">
                 <span className="truncate font-mono text-xs">{d.name}</span>
-                <span className="ml-auto tabular-nums text-muted">엔티티 {d.entities >= 0 ? d.entities : "—"}</span>
-                <span className="w-20 text-right tabular-nums text-muted">청크 {d.chunks >= 0 ? d.chunks : "—"}</span>
+                <span className="ml-auto tabular-nums text-muted">{t("perf.dimEntities", { v: d.entities >= 0 ? d.entities : "—" })}</span>
+                <span className="w-20 text-right tabular-nums text-muted">{t("perf.dimChunks", { v: d.chunks >= 0 ? d.chunks : "—" })}</span>
               </div>
             ))}
           </div>
         ) : (
-          <div className="text-sm text-muted">데이터 수집 중…</div>
+          <div className="text-sm text-muted">{t("perf.collecting")}</div>
         )}
       </div>
 
       <div className="px-1 pb-2 text-[11px] text-muted">
-        {err ? "갱신 실패 · 재시도 중" : "2초마다 실시간 갱신 · 플레이어 접속 시에만 추적"}
+        {err ? t("perf.footerErr") : t("perf.footerLive")}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import {
   TimelineEvent,
   UnauthorizedError,
 } from "../lib/api";
+import { useI18n, TFunc } from "../lib/i18n";
 import Avatar from "./Avatar";
 
 const POLL_MS = 3000; // 데이터(이력 + 현재 접속자) 폴링
@@ -19,21 +20,24 @@ const dayKey = (kst: string) => kst.slice(0, 10); // "YYYY-MM-DD"
 const hm = (kst: string) => kst.slice(11, 16); // "HH:MM"
 const md = (kst: string) => `${+kst.slice(5, 7)}/${+kst.slice(8, 10)}`; // "6/20"
 
-function fmtDur(ms: number): string {
-  if (ms < 60000) return "1분 미만";
+function fmtDur(ms: number, t: TFunc): string {
+  if (ms < 60000) return t("time.lessThanMin");
   const m = Math.floor(ms / 60000);
   const h = Math.floor(m / 60);
-  return h > 0 ? `${h}시간 ${m % 60}분` : `${m}분`;
+  return h > 0 ? t("time.hourMin", { h, m: m % 60 }) : t("time.min", { m });
 }
 
 // now(epoch) 기준 KST 날짜키 — toISOString(UTC)에 +9h 더해 날짜만 취함(라이브러리 불필요)
 const kstDayKey = (epoch: number) => new Date(epoch + 9 * 3600e3).toISOString().slice(0, 10);
-const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
-function dayLabel(key: string, todayKey: string, yestKey: string): string {
-  if (key === todayKey) return "오늘";
-  if (key === yestKey) return "어제";
+function dayLabel(key: string, todayKey: string, yestKey: string, t: TFunc): string {
+  if (key === todayKey) return t("time.today");
+  if (key === yestKey) return t("time.yesterday");
   const d = new Date(key + "T00:00:00Z");
-  return `${+key.slice(5, 7)}월 ${+key.slice(8, 10)}일 (${WEEK[d.getUTCDay()]})`;
+  return t("time.dateFull", {
+    m: +key.slice(5, 7),
+    d: +key.slice(8, 10),
+    wd: t(`time.wd${d.getUTCDay()}`),
+  });
 }
 
 // ── 세션 모델 ───────────────────────────────────────────────────────────────
@@ -92,6 +96,7 @@ function buildSessions(events: TimelineEvent[], online: Set<string>): Session[] 
 }
 
 export default function TimelineView({ onLogout }: { onLogout: () => void }) {
+  const { t } = useI18n();
   const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [online, setOnline] = useState<{ uuid: string; name: string }[]>([]);
   const [now, setNow] = useState(() => Date.now());
@@ -187,8 +192,8 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-2">
       {/* 헤더: 시간대 1회만 명시 */}
       <div className="flex items-center justify-between px-1">
-        <div className="text-sm font-semibold text-fg">접속 타임라인</div>
-        <div className="text-xs font-medium text-muted">시간 KST</div>
+        <div className="text-sm font-semibold text-fg">{t("timeline.title")}</div>
+        <div className="text-xs font-medium text-muted">{t("timeline.tz")}</div>
       </div>
 
       {/* L0 지금 온라인 */}
@@ -197,10 +202,10 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
           <span className={["relative inline-flex h-2 w-2 rounded-full", online.length ? "bg-accent" : "bg-line"].join(" ")}>
             {online.length > 0 && <span className="absolute inset-0 animate-ping rounded-full bg-accent opacity-60" />}
           </span>
-          지금 온라인 · {online.length}명
+          {t("timeline.onlineNow", { n: online.length })}
         </div>
         {online.length === 0 ? (
-          <div className="text-sm text-muted">접속 중인 플레이어가 없습니다.</div>
+          <div className="text-sm text-muted">{t("timeline.noOnline")}</div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {online.map((o) => {
@@ -210,7 +215,7 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
                   <Avatar uuid={o.uuid} name={o.name} px={24} className="rounded-lg" />
                   <span className="text-xs font-medium text-fg">{o.name}</span>
                   {since != null && (
-                    <span className="tabular-nums text-[11px] text-muted">{fmtDur(now - since)}째</span>
+                    <span className="tabular-nums text-[11px] text-muted">{t("timeline.forDur", { dur: fmtDur(now - since, t) })}</span>
                   )}
                 </div>
               );
@@ -224,8 +229,8 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
         <div className="grid flex-1 place-items-center px-8 py-10 text-center text-sm leading-relaxed text-muted">
           <div>
             <ClockIcon />
-            <div className="mt-3">아직 접속 기록이 없어요.</div>
-            <div className="mt-0.5 text-xs">새 접속이 생기면 여기에 표시됩니다.</div>
+            <div className="mt-3">{t("timeline.emptyTitle")}</div>
+            <div className="mt-0.5 text-xs">{t("timeline.emptyBody")}</div>
           </div>
         </div>
       ) : (
@@ -253,11 +258,11 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
             return (
               <div key={day.key} className="space-y-2">
                 <div className="sticky top-0 z-10 flex items-center gap-2 bg-bg py-1 text-xs font-medium text-muted">
-                  <span>{dayLabel(day.key, todayKey, yestKey)}</span>
+                  <span>{dayLabel(day.key, todayKey, yestKey, t)}</span>
                   <span className="h-px flex-1 bg-line" />
                   <span className="tabular-nums">
-                    유저 {uniq} · 접속 {joins}
-                    {totalMs > 0 ? ` · ${fmtDur(totalMs)}` : ""}
+                    {t("timeline.daySummary", { u: uniq, j: joins })}
+                    {totalMs > 0 ? ` · ${fmtDur(totalMs, t)}` : ""}
                   </span>
                 </div>
                 {cards.map(([uuid, ss]) => (
@@ -283,11 +288,11 @@ export default function TimelineView({ onLogout }: { onLogout: () => void }) {
               onClick={() => setVisibleDays((d) => d + INITIAL_DAYS)}
               className="w-full rounded-xl border border-line bg-card py-2 text-xs font-medium text-muted shadow-card hover:text-fg"
             >
-              더 보기
+              {t("timeline.more")}
             </button>
           )}
           <div className="px-1 pb-2 text-[11px] text-muted">
-            {err ? "연결 끊김 · 재시도 중" : "3초마다 갱신 · 신규 접속 시 환영과 함께 추적"}
+            {err ? t("timeline.footerErr") : t("timeline.footerLive")}
           </div>
         </div>
       )}
@@ -315,6 +320,7 @@ function UserDayCard({
   animate: boolean;
   onSeen: () => void;
 }) {
+  const { t } = useI18n();
   useEffect(() => {
     if (animate) onSeen();
   }, [animate, onSeen]);
@@ -343,13 +349,13 @@ function UserDayCard({
             <span className="truncate font-medium text-fg">{name}</span>
             {isFirst && (
               <span className="inline-flex items-center gap-0.5 rounded-full border border-line px-1.5 text-[11px] text-accent">
-                <StarIcon />첫 접속
+                <StarIcon />{t("timeline.firstJoin")}
               </span>
             )}
             {liveProg && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
           </div>
           <div className="mt-0.5 text-xs text-muted">
-            <span className="tabular-nums">{count}</span>회 · 총 <span className="tabular-nums">{fmtDur(totalMs)}</span>
+            <span className="tabular-nums">{count}</span>{t("timeline.userMid")}<span className="tabular-nums">{fmtDur(totalMs, t)}</span>
           </div>
         </div>
         <Chevron open={isOpen} />
@@ -370,20 +376,21 @@ function UserDayCard({
 }
 
 function SessionRow({ s, now }: { s: Session; now: number }) {
+  const { t } = useI18n();
   const startTxt = s.start ? hm(s.start.ts_kst) : "?";
   let endTxt: string;
   let durTxt = "";
   let live = false;
   if (s.inProgress && s.start) {
-    endTxt = "접속 중";
-    durTxt = `${fmtDur(now - s.start.ts)}째`;
+    endTxt = t("timeline.online");
+    durTxt = t("timeline.forDur", { dur: fmtDur(now - s.start.ts, t) });
     live = true;
   } else if (s.end) {
     const crossDay = s.start && dayKey(s.start.ts_kst) !== dayKey(s.end.ts_kst);
     endTxt = crossDay ? `${md(s.end.ts_kst)} ${hm(s.end.ts_kst)}` : hm(s.end.ts_kst);
-    durTxt = s.start ? fmtDur(s.end.ts - s.start.ts) : "";
+    durTxt = s.start ? fmtDur(s.end.ts - s.start.ts, t) : "";
   } else {
-    endTxt = "종료 미상";
+    endTxt = t("timeline.unknownEnd");
   }
   return (
     <div className="flex items-center gap-2 text-sm leading-relaxed">

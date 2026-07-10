@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { fetchTimeline, UnauthorizedError } from "../lib/api";
+import { useI18n } from "../lib/i18n";
 import Avatar from "./Avatar";
 
 // 접속자 목록에서 플레이어를 눌렀을 때 뜨는 프로필 바텀시트.
@@ -29,6 +30,7 @@ export default function ProfileSheet({
   onClose: () => void;
   onLogout: () => void;
 }) {
+  const { t } = useI18n();
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
@@ -71,7 +73,7 @@ export default function ProfileSheet({
         transition={{ duration: 0.22 }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label={`${name} 프로필`}
+        aria-label={t("profile.dialogAria", { name })}
         className="pb-safe w-full max-w-[380px] rounded-t-2xl border-t border-line bg-card p-5 shadow-card sm:rounded-2xl sm:border"
       >
         <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-line sm:hidden" />
@@ -79,11 +81,11 @@ export default function ProfileSheet({
           <Avatar uuid={uuid} name={name} px={48} className="rounded-xl" />
           <div>
             <div className="text-base font-bold text-fg">{name}</div>
-            <div className="text-xs tabular-nums text-muted">{ping >= 0 ? `핑 ${ping}ms` : "핑 —"}</div>
+            <div className="text-xs tabular-nums text-muted">{ping >= 0 ? t("profile.ping", { ping }) : t("profile.pingNone")}</div>
           </div>
           <button
             onClick={onClose}
-            aria-label="닫기"
+            aria-label={t("common.close")}
             className="ml-auto grid h-8 w-8 place-items-center rounded-full border border-line text-muted transition-colors hover:text-fg"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
@@ -92,12 +94,12 @@ export default function ProfileSheet({
           </button>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <StatBox label="오늘 접속" value={stats ? `${stats.todayJoins}회` : "…"} />
-          <StatBox label="기록된 세션" value={stats ? `${stats.totalSessions}회` : "…"} />
-          <StatBox label="마지막 접속" value={stats?.lastJoinKst ? stats.lastJoinKst.slice(5, 16) : "—"} />
-          <StatBox label="첫 방문" value={stats?.firstSeenKst ?? "—"} />
+          <StatBox label={t("profile.statToday")} value={stats ? t("profile.times", { n: stats.todayJoins }) : "…"} />
+          <StatBox label={t("profile.statSessions")} value={stats ? t("profile.times", { n: stats.totalSessions }) : "…"} />
+          <StatBox label={t("profile.statLastJoin")} value={stats?.lastJoinKst ? stats.lastJoinKst.slice(5, 16) : "—"} />
+          <StatBox label={t("profile.statFirstSeen")} value={stats?.firstSeenKst ?? "—"} />
         </div>
-        <div className="mt-3 text-[11px] text-muted">타임라인 보존 기간 내 기록 기준 · 시간 KST</div>
+        <div className="mt-3 text-[11px] text-muted">{t("profile.footnote")}</div>
       </motion.div>
     </motion.div>
   );
