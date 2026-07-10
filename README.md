@@ -2,16 +2,18 @@
 
 **한국어** | [English](README.en.md)
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Kim-Geonwoo/mc-panel-pwa/badge)](https://scorecard.dev/viewer/?uri=github.com/Kim-Geonwoo/mc-panel-pwa) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13554/badge)](https://www.bestpractices.dev/projects/13554)
+[![CI](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Kim-Geonwoo/mc-panel-pwa/badge)](https://scorecard.dev/viewer/?uri=github.com/Kim-Geonwoo/mc-panel-pwa)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13554/badge)](https://www.bestpractices.dev/projects/13554)
+[![Go](https://img.shields.io/github/go-mod/go-version/Kim-Geonwoo/mc-panel-pwa?filename=api%2Fgo.mod&label=Go)](https://go.dev/)
+[![Release](https://img.shields.io/github/v/release/Kim-Geonwoo/mc-panel-pwa)](https://github.com/Kim-Geonwoo/mc-panel-pwa/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > 개인이 취미로 만들고 유지보수하는 프로젝트입니다. 이슈·PR은 환영하지만 지원은 베스트에포트로 이뤄집니다.
 
 마인크래프트 서버용 **인증형 설치 가능 PWA 대시보드**입니다. 실시간 접속 현황, 실시간
 성능 차트, 그리고 게임 ↔ 디스코드 ↔ 웹을 잇는 3방향 채팅을 제공합니다. 정적으로 익스포트한
 Next.js 프런트엔드를, 외부 의존성이 없는 단일 Go 바이너리가 서빙합니다.
-
-[![CI](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml/badge.svg)](https://github.com/Kim-Geonwoo/mc-panel-pwa/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > **백엔드 없이 바로 실행해 보기:** 데모 모드(`PANEL_DEMO=true`)로 띄우고 로그인 코드
 > `000000`을 입력하면, 디스코드 봇이나 게임 서버 없이 내장 샘플 데이터로 동작합니다.
