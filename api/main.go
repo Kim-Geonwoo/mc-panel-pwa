@@ -64,6 +64,7 @@ type config struct {
 	alertWebhook string
 	demo         bool
 	pushEvents   []string // 활성화된 웹 푸시 알림 종류(서버 권위). 빈 목록이면 푸시 전체 비활성
+	maintMarker  string   // 정기 점검 마커 파일 경로. 존재·신선하면 점검 중 다운 알림을 억제
 
 	timelineRetentionDays int
 	codeRotateSec         int
@@ -191,6 +192,13 @@ func getenvBool(k string, def bool) bool {
 //	빈 목록(예: 무효값·"none")이면 푸시 기능 전체가 비활성이며 /api/push/config가
 //	빈 응답을 돌려줘 UI가 관련 화면을 숨깁니다.
 
+// maintMarker: 정기 점검 마커 파일 경로(PANEL_MAINT_MARKER, 기본 <bridge>/.maintenance).
+//
+//	점검 스크립트가 6시간 주기 재시작 창(약 55~90초) 동안 이 파일을 소유합니다. 파일이
+//	존재하고 수정 시각이 최근 30분 이내이면 그 창의 다운 전이는 즉시 알리지 않고, 다운이
+//	2분 이상 이어질 때만 문제로 승격해 알립니다. 남겨진 오래된 마커(30분 초과)는 점검이
+//	아닌 것으로 간주해 알림을 영구히 억제하지 않습니다(stale-marker 가드).
+
 // demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
@@ -218,6 +226,7 @@ func loadConfig() config {
 		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
 		pushEvents:   parsePushEvents(getenv("PANEL_PUSH_EVENTS", "server,join")),
+		maintMarker:  getenv("PANEL_MAINT_MARKER", filepath.Join(br, ".maintenance")),
 
 		timelineRetentionDays: getenvInt("PANEL_TIMELINE_RETENTION_DAYS", 90),
 		codeRotateSec:         getenvInt("PANEL_CODE_ROTATE_SEC", 21600),
