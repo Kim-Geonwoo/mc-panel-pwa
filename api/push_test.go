@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // testPushKeys는 실제 P-256 구독 키 한 쌍(p256dh, auth)을 생성합니다.
@@ -184,6 +185,104 @@ func TestStatusEdgeDetect(t *testing.T) {
 	if ev := w.feed(true); ev != "up" {
 		t.Fatalf("want up, got %q", ev)
 	}
+}
+
+// TestMaintenanceActive는 점검 마커 판정을 고정합니다: 파일 없음·오래된 마커(30분 초과)는
+// 점검 아님, 신선한 마커는 점검 중. stale-marker 가드가 알림을 영구 억제하지 않도록.
+func TestMaintenanceActive(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	path := filepath.Join(t.TempDir(), ".maintenance")
+	// 파일 없음 → 점검 아님
+	if maintenanceActive(path, now) {
+		t.Fatalf("missing marker should be inactive")
+	}
+	if err := os.WriteFile(path, []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 신선한 마커(now-1분) → 점검 중
+	if err := os.Chtimes(path, now, now.Add(-1*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !maintenanceActive(path, now) {
+		t.Fatalf("fresh marker should be active")
+	}
+	// 경계 안(정확히 30분) → 점검 중
+	if err := os.Chtimes(path, now, now.Add(-maintWindow)); err != nil {
+		t.Fatal(err)
+	}
+	if !maintenanceActive(path, now) {
+		t.Fatalf("marker at window edge should be active")
+	}
+	// 오래된 마커(31분) → 점검 아님(stale 가드)
+	if err := os.Chtimes(path, now, now.Add(-31*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if maintenanceActive(path, now) {
+		t.Fatalf("stale marker (>30min) should be inactive")
+	}
+}
+
+// TestDownNotifier는 점검 인지 다운 알림 결정 로직을 주입된 시각으로 검증합니다(슬립 없음).
+func TestDownNotifier(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+
+	// 1) 점검 아님: 다운 → 즉시 다운 알림, 복구 → 복구 알림.
+	t.Run("normal down then up", func(t *testing.T) {
+		n := &downNotifier{}
+		if d := n.step("down", t0, false); d != pushDown {
+			t.Fatalf("normal down: got %d want pushDown", d)
+		}
+		if d := n.step("up", t0.Add(30*time.Second), false); d != pushUp {
+			t.Fatalf("up after normal down: got %d want pushUp", d)
+		}
+	})
+
+	// 2) 점검 중 다운이 120초 안에 복구 → 전 구간 무발화(다운도 복구도 조용히).
+	t.Run("maint short down then up silent", func(t *testing.T) {
+		n := &downNotifier{}
+		if d := n.step("down", t0, true); d != pushNone {
+			t.Fatalf("maint down: got %d want pushNone", d)
+		}
+		if d := n.step("", t0.Add(60*time.Second), true); d != pushNone {
+			t.Fatalf("maint pending <120s: got %d want pushNone", d)
+		}
+		if d := n.step("up", t0.Add(90*time.Second), true); d != pushNone {
+			t.Fatalf("up after suppressed down: got %d want pushNone", d)
+		}
+	})
+
+	// 3) 점검 중 다운이 120초 이상 지속 → 문제 알림 1회(이후 틱 중복 없음), 복구 → 복구 알림.
+	t.Run("maint long down problem once then up", func(t *testing.T) {
+		n := &downNotifier{}
+		if d := n.step("down", t0, true); d != pushNone {
+			t.Fatalf("maint down: got %d want pushNone", d)
+		}
+		if d := n.step("", t0.Add(119*time.Second), true); d != pushNone {
+			t.Fatalf("maint pending just under 120s: got %d want pushNone", d)
+		}
+		if d := n.step("", t0.Add(120*time.Second), true); d != pushProblem {
+			t.Fatalf("maint pending >=120s: got %d want pushProblem", d)
+		}
+		// 이후 틱은 중복 발화 금지.
+		if d := n.step("", t0.Add(125*time.Second), true); d != pushNone {
+			t.Fatalf("problem duplicate: got %d want pushNone", d)
+		}
+		if d := n.step("", t0.Add(600*time.Second), true); d != pushNone {
+			t.Fatalf("problem duplicate later: got %d want pushNone", d)
+		}
+		// 문제 알림을 보낸 뒤이므로 복구 알림은 발송되어야 함.
+		if d := n.step("up", t0.Add(605*time.Second), true); d != pushUp {
+			t.Fatalf("up after problem: got %d want pushUp", d)
+		}
+	})
+
+	// 4) 복구가 다운보다 먼저 관측되는 초기(부팅) 상황: 에지가 up만 오면 다운 미발송이므로 무발화.
+	t.Run("up without prior down stays silent", func(t *testing.T) {
+		n := &downNotifier{}
+		if d := n.step("up", t0, false); d != pushNone {
+			t.Fatalf("up without down: got %d want pushNone", d)
+		}
+	})
 }
 
 func TestParsePushEvents(t *testing.T) {

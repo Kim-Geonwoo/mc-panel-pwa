@@ -231,10 +231,86 @@ func (e *statusEdge) feed(up bool) string {
 	return ""
 }
 
+// 점검 인지 다운 알림에 쓰는 상수.
+const (
+	// maintWindow는 점검 마커를 유효하다고 볼 최대 나이입니다. 이보다 오래된 마커는
+	// 점검이 아닌 것으로 간주해(stale-marker 가드) 알림을 영구히 억제하지 않습니다.
+	maintWindow = 30 * time.Minute
+	// maintProblemWait는 점검 중 다운을 문제로 승격하기까지 기다리는 시간입니다.
+	// 계획된 재시작 창(약 55~90초)을 넉넉히 넘긴 뒤에만 알립니다.
+	maintProblemWait = 120 * time.Second
+)
+
+// maintenanceActive는 점검 마커 파일이 존재하고 그 수정 시각이 now 기준 maintWindow
+// 이내이면 점검 중으로 판정합니다. 파일이 없거나 오래됐으면 점검 아님(false)입니다.
+func maintenanceActive(path string, now time.Time) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return now.Sub(fi.ModTime()) <= maintWindow
+}
+
+// pushDecision은 다운 감시기가 이번 틱에 보낼 푸시 종류입니다.
+type pushDecision int
+
+const (
+	pushNone    pushDecision = iota // 아무것도 보내지 않음
+	pushDown                        // 일반 다운 알림(점검 아님)
+	pushProblem                     // 점검 중 문제 알림(다운이 2분 이상 지속)
+	pushUp                          // 복구 알림
+)
+
+// downNotifier는 다운/복구 전이에 어떤 푸시를 보낼지 결정하는 순수 상태기입니다.
+// I/O·시계에 의존하지 않으며(now·maintActive를 주입받음) 단위 테스트가 쉽습니다.
+// runStatusWatcher가 실제 시계·마커 검사·sendPushAll에 연결합니다.
+type downNotifier struct {
+	pending  bool      // 점검 중 다운이 억제되어 승격을 관찰하는 중
+	downAt   time.Time // 다운이 처음 감지된 시각(pending일 때 유효)
+	notified bool      // 이번 다운에 대해 문제 알림을 이미 보냄
+	downSent bool      // 이번 다운에 다운 계열 알림(일반/문제)을 실제로 보냄 — 복구 알림 발송 조건
+}
+
+func (n *downNotifier) reset() {
+	n.pending, n.downAt, n.notified, n.downSent = false, time.Time{}, false, false
+}
+
+// step은 이번 틱의 에지 이벤트("", "down", "up")와 주입된 now·maintActive로 보낼 푸시를
+// 결정합니다. 에지 없는 틱("")에서도 점검 중 억제된 다운이 maintProblemWait를 넘겼는지
+// 검사해 문제 알림을 한 번만 승격합니다.
+func (n *downNotifier) step(edge string, now time.Time, maintActive bool) pushDecision {
+	switch edge {
+	case "down":
+		if maintActive {
+			// 점검 창 안의 다운 → 즉시 알리지 않고 승격 대기 상태로 둡니다.
+			n.pending, n.downAt, n.notified, n.downSent = true, now, false, false
+			return pushNone
+		}
+		// 점검 아님 → 기존과 동일하게 즉시 다운 알림.
+		n.pending, n.notified, n.downSent = false, false, true
+		return pushDown
+	case "up":
+		sent := n.downSent
+		n.reset()
+		if sent { // 다운을 실제로 알린 경우에만 복구를 알립니다(조용히 억제된 다운은 조용히 복구).
+			return pushUp
+		}
+		return pushNone
+	default: // "" — 전이 없음. 점검 중 억제된 다운의 승격만 검사.
+		if n.pending && !n.notified && now.Sub(n.downAt) >= maintProblemWait {
+			n.notified, n.downSent = true, true
+			return pushProblem
+		}
+		return pushNone
+	}
+}
+
 // runStatusWatcher는 5초마다 status.json의 신선도로 서버 상태를 감시해
-// 다운/복구 전이에 푸시를 보냅니다.
+// 다운/복구 전이에 푸시를 보냅니다. 정기 점검 창(maintMarker) 안의 다운은 즉시 알리지
+// 않고, 다운이 maintProblemWait 이상 이어질 때만 문제로 승격해 알립니다.
 func (s *server) runStatusWatcher(stop <-chan struct{}) {
 	edge := &statusEdge{}
+	notifier := &downNotifier{}
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {
@@ -245,11 +321,14 @@ func (s *server) runStatusWatcher(stop <-chan struct{}) {
 		}
 		var st statusFile
 		_ = readJSON(s.cfg.statusJSON, &st)
-		up := st.TS > 0 && (float64(time.Now().UnixMilli())-st.TS) < s.cfg.freshSec*1000
-		switch edge.feed(up) {
-		case "down":
+		now := time.Now()
+		up := st.TS > 0 && (float64(now.UnixMilli())-st.TS) < s.cfg.freshSec*1000
+		switch notifier.step(edge.feed(up), now, maintenanceActive(s.cfg.maintMarker, now)) {
+		case pushDown:
 			s.sendPushAll("server", "마크서버", "서버가 응답하지 않습니다 (다운 감지)")
-		case "up":
+		case pushProblem:
+			s.sendPushAll("server", "마크서버", "정기 점검 중 문제가 발생했습니다 — 서버가 2분 이상 응답하지 않습니다")
+		case pushUp:
 			s.sendPushAll("server", "마크서버", "서버가 다시 온라인입니다")
 		}
 	}
