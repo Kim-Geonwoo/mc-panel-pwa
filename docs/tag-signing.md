@@ -25,6 +25,18 @@ git verify-tag v0.1.0
 공개키의 진본성은 저장소 이력(서명 도입 커밋과 그 이후의 보호된 main 브랜치)으로
 보증됩니다.
 
+## 컨테이너 이미지 서명
+
+릴리스 태그마다 게시되는 GHCR 이미지(`ghcr.io/kim-geonwoo/mc-panel-pwa`)는
+cosign keyless(OIDC)로 digest 기준 서명되며 SLSA provenance 증명이 함께 게시된다.
+검증:
+
+```bash
+cosign verify ghcr.io/kim-geonwoo/mc-panel-pwa:latest \
+  --certificate-identity-regexp "^https://github.com/Kim-Geonwoo/mc-panel-pwa/" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ---
 
 ## English
@@ -51,3 +63,15 @@ git verify-tag v0.1.0
 The allowed-signers list lives in [docs/allowed_signers](allowed_signers); its
 authenticity is anchored by the repository history (the commit introducing
 signing and the protected main branch thereafter).
+
+### Container image signing
+
+GHCR images published per release tag (`ghcr.io/kim-geonwoo/mc-panel-pwa`) are
+signed by digest with cosign keyless (OIDC) and shipped with SLSA provenance
+attestations. Verify:
+
+```bash
+cosign verify ghcr.io/kim-geonwoo/mc-panel-pwa:latest \
+  --certificate-identity-regexp "^https://github.com/Kim-Geonwoo/mc-panel-pwa/" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
