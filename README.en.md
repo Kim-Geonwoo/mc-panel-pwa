@@ -18,7 +18,8 @@ dependency-free Go binary.
 
 > **Try it without any backend:** run in demo mode (`PANEL_DEMO=true`) and log in
 > with the code `000000` — the panel serves built-in sample data, no Discord bot
-> or game server required. See [Run locally](#run-locally).
+> or game server required. See [Run locally](#run-locally). For a one-line run,
+> see [`demo/`](demo/).
 
 ## Features
 
@@ -148,6 +149,7 @@ Renovate with a release cooldown and CI-gated auto-merge. Details and reporting:
 ```
 api/      Go backend (main.go, demo.go) — API + static server + /healthz
 web/      Next.js app (App Router, components, lib, PWA assets)
+demo/     demo run kit (run-demo.sh · docker-compose.yml) — runs the current main source
 build.sh  build both halves
 .github/  CI + security workflows, templates, policy
 ```

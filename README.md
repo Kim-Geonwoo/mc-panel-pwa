@@ -17,7 +17,7 @@ Next.js 프런트엔드를, 외부 의존성이 없는 단일 Go 바이너리가
 
 > **백엔드 없이 바로 실행해 보기:** 데모 모드(`PANEL_DEMO=true`)로 띄우고 로그인 코드
 > `000000`을 입력하면, 디스코드 봇이나 게임 서버 없이 내장 샘플 데이터로 동작합니다.
-> [로컬 실행](#로컬-실행) 참고.
+> [로컬 실행](#로컬-실행) 참고. 한 줄 실행은 [`demo/`](demo/)를 참조하십시오.
 
 ## 주요 기능
 
@@ -140,6 +140,7 @@ gitleaks + GitHub 푸시 보호(시크릿), 그리고 릴리스 쿨다운과 CI 
 ```
 api/      Go 백엔드 (main.go, demo.go) — API + 정적 서버 + /healthz
 web/      Next.js 앱 (App Router, components, lib, PWA 자산)
+demo/     데모 실행 키트 (run-demo.sh · docker-compose.yml) — 현재 main 소스를 그대로 실행
 build.sh  양쪽 빌드
 .github/  CI + 보안 워크플로, 템플릿, 정책
 ```
