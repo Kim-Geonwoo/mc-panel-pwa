@@ -16,10 +16,11 @@ player status, real-time performance charts, and a three-way (game ↔ Discord �
 web) chat bridge. A statically-exported Next.js front end served by a single,
 dependency-free Go binary.
 
-> **Try it without any backend:** run in demo mode (`PANEL_DEMO=true`) and log in
-> with the code `000000` — the panel serves built-in sample data, no Discord bot
-> or game server required. See [Run locally](#run-locally). For a one-line run,
-> see [`demo/`](demo/).
+> **Live demo:** <https://mc-panel-demo.geonwoo.dev> — login code `000000`.
+>
+> **Run it yourself:** demo mode (`PANEL_DEMO=true`) serves built-in sample data —
+> no Discord bot or game server required. See [Run locally](#run-locally); for a
+> one-line run, see [`demo/`](demo/).
 
 ## Features
 

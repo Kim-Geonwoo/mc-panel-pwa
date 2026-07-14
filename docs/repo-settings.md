@@ -35,6 +35,8 @@
 
 ## 운영 전제 (레포 밖)
 
-- 프로덕션은 `main` 머지 후 서버에서 `build.sh` → `systemctl --user restart dc-panel-api`
+- 프로덕션은 `main` 머지 후 서버에서 `build.sh` → `systemctl --user restart dc-panel-api dc-panel-demo`
+  (공개 데모 <https://mc-panel-demo.geonwoo.dev> 는 같은 바이너리를 `PANEL_DEMO=true`로 실행하는
+  `dc-panel-demo` 유닛 — Cloudflare Tunnel `dc-panel`의 ingress로 노출)
 - 봇(비공개)은 별도 코드베이스 — 패널과는 루프백 내부 API(`/internal/*`)와
   0600 공유 파일로만 연동
