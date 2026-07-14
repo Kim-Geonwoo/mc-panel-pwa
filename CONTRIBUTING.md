@@ -24,7 +24,7 @@
 ### 요구사항 (받아들여지는 기여)
 
 - **Go 코드**는 `gofmt`, `go vet`, `go build`(api/)를 통과해야 합니다.
-- **웹 코드**는 `npm run lint`, `tsc --noEmit`, `npm run build`(web/)를 통과해야
+- **웹 코드**는 `npx tsc --noEmit`, `npm run build`(web/)를 통과해야
   합니다.
 - 시크릿이나 개인 경로를 포함하지 마세요(CI에서 gitleaks가 검사합니다).
 - 의존성은 최소한으로 유지하고 버전을 고정합니다(업데이트는 Renovate가 관리합니다).
@@ -78,7 +78,7 @@ and support for issues and PRs is best-effort. Please bear with delayed replies.
 ### Requirements (acceptable contributions)
 
 - **Go code** must pass `gofmt`, `go vet`, and `go build` (api/).
-- **Web code** must pass `npm run lint`, `tsc --noEmit`, and `npm run build`
+- **Web code** must pass `npx tsc --noEmit` and `npm run build`
   (web/).
 - Do not include secrets or personal paths (gitleaks runs in CI).
 - Keep dependencies minimal and pinned (Renovate manages updates).

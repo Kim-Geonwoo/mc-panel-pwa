@@ -56,7 +56,7 @@
 
 ## 4. 잔여 위험 (정직한 한계)
 
-- 단독 유지보수자라 독립적 2인 코드리뷰가 없다 — CodeQL·테스트(문장 커버리지 80%
+- 단독 유지보수자라 독립적 2인 코드리뷰가 없다 — CodeQL·테스트(문장 커버리지 ~82%
   수준)·퍼징·Scorecard로 부분 보완하지만 동등하지는 않다.
 - 외부 침투 테스트는 수행된 적 없다. 취약점 신고는 [SECURITY.md](../.github/SECURITY.md)의
   비공개 채널로 받는다.
@@ -124,7 +124,7 @@ malicious dependencies or image tampering (R6).
 
 ### 4. Residual risks (honest limits)
 
-- A solo maintainer means no independent two-person review; CodeQL, an ~80%
+- A solo maintainer means no independent two-person review; CodeQL, an ~82%
   statement-coverage test suite, fuzzing, and Scorecard partially compensate
   but are not equivalent.
 - No external penetration test has been performed. Vulnerability reports are
