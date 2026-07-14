@@ -1,0 +1,53 @@
+name: Package
+
+# 릴리스 태그(v*) push 또는 수동 실행 시 컨테이너 이미지를 빌드해 GHCR에 게시한다.
+# 이미지 기본값은 데모 모드(PANEL_DEMO=true)라, 모든 릴리스가 그대로 실행 가능한 공개 데모가 된다.
+# (운영 배포에서는 PANEL_DEMO=false와 데이터 경로 환경변수를 주입해 이 기본값을 덮어쓴다 — .env.example 참고.)
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# 최소 권한: top-level은 읽기만.
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: GHCR 이미지 빌드·게시
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # GHCR로 이미지 push
+    steps:
+      # 액션은 커밋 SHA로 핀 고정(태그 재지정 공급망 공격 방어). Renovate가 갱신을 유지한다.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: GHCR 로그인
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 메타데이터(태그·라벨) 산출
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          # 이미지 이름은 반드시 소문자여야 한다(GHCR 요구사항).
+          images: ghcr.io/kim-geonwoo/mc-panel-pwa
+          # 태그에서 뽑은 semver + latest.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # latest는 릴리스 태그 빌드에만 부여 — 수동 실행(workflow_dispatch)이 브랜치
+            # 빌드로 latest를 덮어쓰는 사고를 방지한다. 수동 실행은 sha 태그로만 게시된다.
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha
+      - name: 이미지 빌드·푸시
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

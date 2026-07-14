@@ -18,7 +18,8 @@ dependency-free Go binary.
 
 > **Try it without any backend:** run in demo mode (`PANEL_DEMO=true`) and log in
 > with the code `000000` — the panel serves built-in sample data, no Discord bot
-> or game server required. See [Run locally](#run-locally).
+> or game server required. See [Run locally](#run-locally). For a one-line run,
+> see [`demo/`](demo/).
 
 ## Features
 
@@ -148,6 +149,7 @@ Renovate with a release cooldown and CI-gated auto-merge. Details and reporting:
 ```
 api/      Go backend (main.go, demo.go) — API + static server + /healthz
 web/      Next.js app (App Router, components, lib, PWA assets)
+demo/     demo run kit (run-demo.sh · docker-compose.yml) — runs the current main source
 build.sh  build both halves
 .github/  CI + security workflows, templates, policy
 ```
@@ -160,50 +162,6 @@ Roadmap, with status per item:
 - [ ] Build-time locale for PWA metadata (document title, manifest, push fallback text)
 - [ ] Unit tests for the web UI (the Go API is at ~82% statement coverage)
 - [ ] README screenshots
-
-The two major architecture changes below have landed; they are recorded here as design references.
-
-### 1. Chat architecture — bot-centric → web-centric ✅ (done)
-
-Previously the Discord bot was the hub for all chat, and even login codes and session revocation were bot artifacts — without the bot the web panel was effectively dead. The Go API is now the hub.
-
-| | Before | Now |
-| --- | --- | --- |
-| Storage/reads | Bot writes `chat.json` → API reads the file | **API stores and serves from SQLite directly** |
-| Web → Game | Web → `web_outbox/` → Bot → Game | Web → **API store (feed updates instantly)** → `web_outbox/` → Bot → Game/Discord |
-| Login codes | Bot generates & rotates | **API generates & rotates** (`PANEL_CODE_ROTATE_SEC`, default 6h) — the bot only displays them on Discord |
-| Session admin | Bot writes `web_revoked.json` | **Internal API** (`/internal/sessions` · `/internal/revoke`, loopback-only) — the file path remains for legacy compatibility |
-| Without bot | No login, no web message delivery | **Login and web chat work standalone** (only game/Discord delivery waits) |
-
-- The bot is demoted to a pure bridge: it forwards game/Discord events to the API via loopback `POST /internal/ingest` (falling back to the legacy files on failure — the importer picks those up) and handles delivery/display only.
-- There is a single id authority — the DB. The importer uses file ids only as a progress cursor and assigns fresh DB ids.
-- ✅ Web → game delivery now works without the bot too: the API writes a queue file (`PANEL_GAME_INBOX`, default `<mc>/web_to_game.json`) and a server-side KubeJS script polls it every second and tellraws — RCON credentials still never touch the API. The bot's outbox consumption is reduced to Discord mirroring only.
-
-### 2. Chat storage — JSON file → SQLite ✅ (done)
-
-Reading the entire `chat.json` on every request became linearly slower as messages accumulated, so storage moved to SQLite.
-
-- Driver: `modernc.org/sqlite` — a single pure-Go, CGO-free dependency (build environment stays simple)
-- The cursor is **`id`-based**, not `ts`-based — a ts cursor can skip messages that land in the same millisecond, while the id cursor stays compatible with the existing frontend (`since=last_id`)
-- Timeline (join/leave) events share the same DB, with size managed by a retention window (`PANEL_TIMELINE_RETENTION_DAYS`, default 90 days)
-- During the transition an importer ingests the bot-written `chat.json`/`timeline.json` into the DB every 2s (the first run doubles as the one-time migration). The importer remains as a fallback for the legacy file channel and is removed together with it (see the roadmap)
-- DB path: `PANEL_DB` (default `<bridge>/panel.db`), WAL mode, single writer
-
-```sql
--- Implemented schema
-CREATE TABLE messages (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts      INTEGER NOT NULL,
-    source  TEXT NOT NULL,  -- 'game' | 'discord' | 'web'
-    uuid    TEXT NOT NULL DEFAULT '',
-    user    TEXT NOT NULL,
-    text    TEXT NOT NULL
-);
-CREATE INDEX idx_messages_ts ON messages(ts);
--- timeline(id, ts, ts_kst, uuid, name, event, is_first) + idx_timeline_ts
-```
-
-- `GET /api/chat?since=<id>` → `SELECT ... WHERE id > ? ORDER BY id` (no full-file parse)
 
 ## License
 

@@ -1,0 +1,7 @@
+# demo/docker-compose.yml — 저장소 루트 Dockerfile로 데모 이미지를 빌드·실행한다(데모 기본값이 이미지에 내장돼 볼륨 불필요).
+services:
+  demo:
+    build:
+      context: ..
+    ports:
+      - "8081:8080"

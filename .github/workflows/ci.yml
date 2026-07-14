@@ -63,3 +63,54 @@ jobs:
         run: npx --no-install tsc --noEmit
       - name: 빌드(정적 익스포트)
         run: npm run build
+
+  demo-smoke:
+    name: Demo smoke (데모 실행 확인)
+    runs-on: ubuntu-latest
+    # 데모 실행 키트(demo/)는 항상 현재 main 소스를 빌드해 띄운다. 이 잡이 데모가
+    # 실제로 로그인·상태 조회·정적 서빙까지 동작함을 회귀 검증한다(격리를 위해 독립 빌드).
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: api/go.mod
+          cache: true
+          cache-dependency-path: api/go.sum
+      - name: 웹 정적 익스포트 빌드
+        working-directory: web
+        run: npm ci && npm run build
+      - name: api 바이너리 빌드
+        working-directory: api
+        run: go build -o mc_sv-panel .
+      - name: 데모 스모크(로그인·상태·정적)
+        run: |
+          set -euo pipefail
+          # 데모 모드로 패널을 백그라운드 실행(jq는 ubuntu-latest에 기본 설치).
+          PANEL_DEMO=true PANEL_LISTEN=127.0.0.1:8081 PANEL_STATIC_DIR=web/out ./api/mc_sv-panel &
+          echo $! > panel.pid
+          # 최대 30초까지 루트가 200을 줄 때까지 대기.
+          for _ in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:8081/ >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          [ "${ready:-}" = 1 ] || { echo "::error::데모 패널이 30초 안에 준비되지 않음"; exit 1; }
+          # ① 로그인: {"code":"000000"} → 토큰 반환
+          token="$(curl -fs -X POST http://127.0.0.1:8081/api/login \
+            -H 'Content-Type: application/json' -d '{"code":"000000"}' | jq -r '.token')"
+          [ -n "$token" ] && [ "$token" != null ] || { echo "::error::로그인 토큰 없음"; exit 1; }
+          # ② 상태: Bearer 토큰으로 200 + server_up 필드 포함
+          curl -fs http://127.0.0.1:8081/api/status -H "Authorization: Bearer $token" \
+            | jq -e 'has("server_up")' >/dev/null || { echo "::error::/api/status에 server_up 없음"; exit 1; }
+          # ③ 정적: 루트가 HTML을 서빙
+          curl -fs http://127.0.0.1:8081/ | grep -qi '<html' || { echo "::error::루트가 HTML을 서빙하지 않음"; exit 1; }
+          echo "데모 스모크 통과: 로그인·상태·정적 3가지 모두 정상"
+      - name: 데모 패널 종료
+        if: always()
+        run: '[ -f panel.pid ] && kill "$(cat panel.pid)" 2>/dev/null || true'
