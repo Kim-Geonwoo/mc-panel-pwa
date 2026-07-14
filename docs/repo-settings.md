@@ -8,7 +8,7 @@
 - [ ] 기본 브랜치 `main` 유지 (작업은 `dev` → PR로만 `main` 병합)
 - [ ] `main` 룰셋(Repository rules) 활성:
   - `pull_request` 필수 (직접 push 금지)
-  - `required_status_checks`: **Go API (vet · fmt · build)** · **Next.js (typecheck · build)** · **Analyze (go)** · **Analyze (javascript-typescript)**
+  - `required_status_checks`: **Go API (vet · fmt · build)** · **Next.js (typecheck · build)** · **Analyze (go)** · **Analyze (javascript-typescript)** · **Demo smoke (데모 실행 확인)**
   - `non_fast_forward`(force-push 차단) · `deletion` 차단
   - bypass 대상 없음 (소유자도 우회 불가)
 - [ ] Allow auto-merge 활성 — Renovate `platformAutomerge`의 전제
