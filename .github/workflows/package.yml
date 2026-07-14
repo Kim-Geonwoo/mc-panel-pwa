@@ -25,6 +25,10 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+      - name: Buildx 설정
+        # provenance 증명(attestation)은 기본 docker 드라이버가 지원하지 않으므로
+        # docker-container 드라이버를 쓰는 buildx 빌더가 필요하다.
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: GHCR 로그인
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
