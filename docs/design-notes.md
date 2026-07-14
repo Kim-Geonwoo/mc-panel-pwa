@@ -12,14 +12,14 @@
 | | 이전 | 현재 |
 | --- | --- | --- |
 | 저장·조회 | 봇이 `chat.json` 기록 → API가 파일 읽기 | **API가 SQLite에 직접 저장·조회** |
-| 웹 → 게임 | 웹 → `web_outbox/` → 봇 → 게임 | 웹 → **API 저장(피드 즉시 반영)** → `web_outbox/` → 봇 → 게임·디스코드 |
+| 웹 → 게임 | 웹 → `web_outbox/` → 봇 → 게임 | 웹 → **API 저장(피드 즉시 반영)** → 게임 인박스(`PANEL_GAME_INBOX`)+KubeJS 표시, `web_outbox/`는 디스코드 미러 전용 |
 | 로그인 코드 | 봇이 생성·로테이션 | **API가 생성·로테이션** (`PANEL_CODE_ROTATE_SEC`, 기본 6시간) — 봇은 디스코드 표시만 |
 | 세션 관리 | 봇이 `web_revoked.json` 기록 | **내부 API** (`/internal/sessions`·`/internal/revoke`, 루프백 전용) — 파일 방식은 구버전 호환용 유지 |
 | 봇 없을 때 | 로그인·웹 메시지 전달 불가 | **로그인·웹 채팅 독립 동작** (게임·디스코드 전달만 대기) |
 
 - 봇은 순수 브리지로 강등: 게임/디스코드 이벤트를 루프백 `POST /internal/ingest`로 API에 넘기고(실패 시 기존 파일 방식 폴백 → 임포터가 수습), 전달(웹훅·tellraw)과 표시만 담당합니다.
 - id 권위는 DB 하나입니다 — 임포터는 파일 id를 커서로만 쓰고 DB id를 새로 부여합니다.
-- ✅ 게임 방향 전달도 봇 없이 동작합니다: API가 큐 파일(`PANEL_GAME_INBOX`, 기본 `<mc>/web_to_game.json`)에 쓰고 서버 측 KubeJS 스크립트가 1초 폴링으로 tellraw 표시 — RCON 자격증명은 여전히 API에 없습니다. 봇의 outbox 소비는 디스코드 미러 전용으로 축소되었습니다.
+- 게임 방향 전달도 봇 없이 동작합니다: API가 큐 파일(`PANEL_GAME_INBOX`, 기본 `<mc>/web_to_game.json`)에 쓰고 서버 측 KubeJS 스크립트가 1초 폴링으로 tellraw 표시 — RCON 자격증명은 여전히 API에 없습니다. 봇의 outbox 소비는 디스코드 미러 전용으로 축소되었습니다.
 
 ## 2. 채팅 저장소 — JSON 파일에서 SQLite로
 
@@ -61,14 +61,14 @@ Previously the Discord bot was the hub for all chat, and even login codes and se
 | | Before | Now |
 | --- | --- | --- |
 | Storage/reads | Bot writes `chat.json` → API reads the file | **API stores and serves from SQLite directly** |
-| Web → Game | Web → `web_outbox/` → Bot → Game | Web → **API store (feed updates instantly)** → `web_outbox/` → Bot → Game/Discord |
+| Web → Game | Web → `web_outbox/` → Bot → Game | Web → **API store (feed updates instantly)** → game inbox (`PANEL_GAME_INBOX`) + KubeJS display; `web_outbox/` is Discord-mirror only |
 | Login codes | Bot generates & rotates | **API generates & rotates** (`PANEL_CODE_ROTATE_SEC`, default 6h) — the bot only displays them on Discord |
 | Session admin | Bot writes `web_revoked.json` | **Internal API** (`/internal/sessions` · `/internal/revoke`, loopback-only) — the file path remains for legacy compatibility |
 | Without bot | No login, no web message delivery | **Login and web chat work standalone** (only game/Discord delivery waits) |
 
 - The bot is demoted to a pure bridge: it forwards game/Discord events to the API via loopback `POST /internal/ingest` (falling back to the legacy files on failure — the importer picks those up) and handles delivery/display only.
 - There is a single id authority — the DB. The importer uses file ids only as a progress cursor and assigns fresh DB ids.
-- ✅ Web → game delivery now works without the bot too: the API writes a queue file (`PANEL_GAME_INBOX`, default `<mc>/web_to_game.json`) and a server-side KubeJS script polls it every second and tellraws — RCON credentials still never touch the API. The bot's outbox consumption is reduced to Discord mirroring only.
+- Web → game delivery now works without the bot too: the API writes a queue file (`PANEL_GAME_INBOX`, default `<mc>/web_to_game.json`) and a server-side KubeJS script polls it every second and tellraws — RCON credentials still never touch the API. The bot's outbox consumption is reduced to Discord mirroring only.
 
 ## 2. Chat storage — from JSON file to SQLite
 
