@@ -1,5 +1,7 @@
 # 데모 실행 키트 / Demo run kit
 
+> 공개 데모 / Public demo: <https://mc-panel-demo.geonwoo.dev> (code `000000`)
+
 **한국어** · English below
 
 ## 한국어
