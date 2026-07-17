@@ -1235,6 +1235,7 @@ func main() {
 		hmux.HandleFunc("/internal/ingest", s.handleInternalIngest)
 		hmux.HandleFunc("/internal/sessions", s.handleInternalSessions)
 		hmux.HandleFunc("/internal/revoke", s.handleInternalRevoke)
+		hmux.HandleFunc("/api/layout", s.handleLayoutPut) // 루프백 전용 레이아웃 편집
 		hsrv := &http.Server{
 			Addr:              getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099"),
 			Handler:           hmux,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 )
@@ -111,4 +112,24 @@ func (s *server) handleLayoutGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(b)
+}
+
+// handleLayoutPut은 레이아웃을 검증 후 원자적으로 저장한다. 루프백 리스너에만
+// 등록되어 인터넷에서 도달 불가하다(Phase 1 로컬 관리; 미래 호스팅은 인증 뒤로 이동).
+func (s *server) handleLayoutPut(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", "PUT")
+		s.writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method"})
+		return
+	}
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxLayoutBytes))
+	if err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "too_large_or_bad"})
+		return
+	}
+	if err := s.layout.put(b); err != nil {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_layout"})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

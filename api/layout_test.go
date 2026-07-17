@@ -63,3 +63,42 @@ func TestHandleLayoutGet(t *testing.T) {
 		t.Fatalf("corrupt fallback body invalid: %v", err)
 	}
 }
+
+func TestHandleLayoutPut(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "layout.json")
+	s := &server{layout: newFileLayoutStore(p)}
+
+	// 유효 PUT → 200 + 저장
+	req := httptest.NewRequest("PUT", "/api/layout", bytes.NewReader([]byte(`{"version":1,"meta":{"title":"z"}}`)))
+	rec := httptest.NewRecorder()
+	s.handleLayoutPut(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("valid put: %d %s", rec.Code, rec.Body)
+	}
+	if got, _ := os.ReadFile(p); !bytes.Contains(got, []byte(`"z"`)) {
+		t.Fatalf("not persisted: %s", got)
+	}
+
+	// 손상 → 400
+	rec2 := httptest.NewRecorder()
+	s.handleLayoutPut(rec2, httptest.NewRequest("PUT", "/api/layout", bytes.NewReader([]byte("{bad"))))
+	if rec2.Code != 400 {
+		t.Errorf("corrupt: want 400 got %d", rec2.Code)
+	}
+
+	// 초과 크기 → 400
+	big := bytes.Repeat([]byte("x"), maxLayoutBytes+1)
+	rec3 := httptest.NewRecorder()
+	s.handleLayoutPut(rec3, httptest.NewRequest("PUT", "/api/layout", bytes.NewReader(big)))
+	if rec3.Code != 400 {
+		t.Errorf("oversized: want 400 got %d", rec3.Code)
+	}
+
+	// 잘못된 메서드 → 405
+	rec4 := httptest.NewRecorder()
+	s.handleLayoutPut(rec4, httptest.NewRequest("GET", "/api/layout", nil))
+	if rec4.Code != 405 {
+		t.Errorf("wrong method: want 405 got %d", rec4.Code)
+	}
+}
