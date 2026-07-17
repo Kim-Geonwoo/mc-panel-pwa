@@ -114,6 +114,61 @@ export function updateProps(tree: Block, path: BlockPath, props: Record<string, 
   return next ?? tree;
 }
 
+// ── 컨텍스트 메뉴 명령용 연산(복제·감싸기·풀기) ──────────────────────────────
+// 아래 세 연산도 파일 상단의 불변식(입력 불변·절대 throw 금지·실패=원본 반환)을
+// 그대로 따른다. 노드 수 상한(500)은 발행 사전검사(studioPublish)가 잡으므로
+// 여기서는 검사하지 않는다.
+
+// schema.ts의 MAX_DEPTH와 같은 값 — 비공개 상수라 재선언한다(값 변경 시 동기화).
+const MAX_DEPTH = 20;
+
+// 복제 삽입용 사본 — withKeys(기존 key 보존)와 달리 자손 전체의 key를 강제로 새로
+// 발급한다. 사본이 원본과 key를 공유하면 형제 간 key 중복으로 React 재조정과
+// 선택 상태가 깨지므로 withKeys는 복제에 부적합하다.
+function reKey(b: Block): Block {
+  const out: Block = { ...b, props: { ...b.props, key: newKey() } };
+  if (b.children) out.children = b.children.map(reKey);
+  return out;
+}
+
+// path 노드의 사본을 바로 뒤 형제로 삽입한다(사본은 자손 포함 전체 key 재발급).
+// 루트(형제 자리가 없음)·무효 경로는 원본 반환.
+export function duplicateAt(tree: Block, path: BlockPath): Block {
+  if (path.length === 0) return tree;
+  const node = getAt(tree, path);
+  if (!node) return tree;
+  return rawInsert(tree, path.slice(0, -1), path[path.length - 1] + 1, reKey(node)) ?? tree;
+}
+
+// path 노드를 { type: wrapper, children: [노드] }로 치환한다. 래퍼에는 새 key를
+// 부여하고 감싸인 노드는 기존 key를 보존한다. 루트는 감쌀 수 없고, 감싸면 노드
+// 이하가 한 단계 깊어지므로 결과 깊이가 MAX_DEPTH를 넘으면 원본을 반환한다.
+export function wrapAt(tree: Block, path: BlockPath, wrapper: "vstack" | "hstack"): Block {
+  if (path.length === 0) return tree;
+  const node = getAt(tree, path);
+  if (!node) return tree;
+  // 결과 최대 깊이 = path 위 조상 수(path.length) + 래퍼 1 + 서브트리 깊이(maxDepth).
+  if (path.length + 1 + maxDepth(node) > MAX_DEPTH) return tree;
+  const next = replaceAt(tree, path, (n) => ({ type: wrapper, props: { key: newKey() }, children: [n] }));
+  return next ?? tree;
+}
+
+// 컨테이너의 children을 부모의 같은 자리로 제자리 승격하고 컨테이너는 제거한다.
+// 승격되는 자식들의 key·순서는 그대로 보존한다. 루트·비컨테이너(children 없음)·빈
+// children·무효 경로는 원본 반환. 여기서 "컨테이너" 판정은 children 배열 유무만
+// 본다 — 레지스트리 kind(layout/element) 기반 가드는 호출부(메뉴 배선)의 몫이다.
+export function unwrapAt(tree: Block, path: BlockPath): Block {
+  if (path.length === 0) return tree;
+  const idx = path[path.length - 1];
+  const next = replaceAt(tree, path.slice(0, -1), (parent) => {
+    const node = parent.children?.[idx];
+    if (!node?.children?.length) return null;
+    const kids = parent.children!;
+    return { ...parent, children: [...kids.slice(0, idx), ...node.children, ...kids.slice(idx + 1)] };
+  });
+  return next ?? tree;
+}
+
 export function countNodes(tree: Block): number {
   return 1 + (tree.children ?? []).reduce((n, c) => n + countNodes(c), 0);
 }

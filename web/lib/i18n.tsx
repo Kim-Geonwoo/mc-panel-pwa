@@ -265,6 +265,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "studio.publish.errInvalid": "서버가 레이아웃을 거부했습니다(스키마 위반).",
     "studio.publish.errSlowDown": "요청이 너무 잦습니다. 잠시 후 다시 시도하세요.",
     "studio.publish.errFailed": "발행에 실패했습니다. 네트워크를 확인하세요.",
+    "studio.menu.aria": "컨텍스트 메뉴",
   },
   en: {
     // ── Common ──
@@ -510,6 +511,7 @@ const dict: Record<Lang, Record<string, string>> = {
     "studio.publish.errInvalid": "The server rejected the layout (schema violation).",
     "studio.publish.errSlowDown": "Too many requests. Please try again shortly.",
     "studio.publish.errFailed": "Publish failed. Check your network connection.",
+    "studio.menu.aria": "Context menu",
   },
 };
 
