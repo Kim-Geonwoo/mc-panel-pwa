@@ -57,6 +57,7 @@ type config struct {
 	dbPath       string
 	gameInbox    string
 	vapidJSON    string
+	layoutJSON   string
 	maxPlayers   int
 	freshSec     float64
 	sessionSec   int64
@@ -168,6 +169,10 @@ func getenvBool(k string, def bool) bool {
 
 // vapidJSON: 웹 푸시 VAPID 키 저장 파일 (기본 <bridge>/vapid.json, 자동 생성·0600)
 
+// layoutJSON: 서버별 페이지 구성 JSON 경로(PANEL_LAYOUT_JSON, 기본 <bridge>/layout.json).
+//
+//	부재 시 번들 기본 레이아웃을 반환한다. 편집은 루프백 전용 PUT /api/layout.
+
 // timelineRetentionDays: 타임라인 접속 이벤트 보존 일수 (기본 90일, DB에서 주기 정리)
 
 // codeRotateSec: 6자리 로그인 코드 로테이션 주기(초). 기본 21600(6시간) — 봇의 기존
@@ -219,6 +224,7 @@ func loadConfig() config {
 		dbPath:       getenv("PANEL_DB", filepath.Join(br, "panel.db")),
 		gameInbox:    getenv("PANEL_GAME_INBOX", filepath.Join(mc, "web_to_game.json")),
 		vapidJSON:    getenv("PANEL_VAPID_JSON", filepath.Join(br, "vapid.json")),
+		layoutJSON:   getenv("PANEL_LAYOUT_JSON", filepath.Join(br, "layout.json")),
 		maxPlayers:   getenvInt("PANEL_MAX_PLAYERS", 20),
 		freshSec:     getenvFloat("PANEL_FRESH_SEC", 21),
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
@@ -625,6 +631,7 @@ type server struct {
 	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	store         *store          // 채팅·타임라인 SQLite 저장소 (데모 모드에서는 nil)
 	vapid         vapidKeys       // 웹 푸시 VAPID 키 (데모 모드·로드 실패 시 빈 값 → 푸시 비활성)
+	layout        layoutStore     // 서버별 페이지 레이아웃 스토어(파일; 미래 호스팅은 인터페이스로 DB 교체)
 	perfMu        sync.Mutex      // perf.json을 읽고 쓰는동안 동시 접근을 막습니다
 	perfHist      []perfHistEntry // perf.json에서 주기적으로 뽑아 둔 최근 성능 기록(롤링 히스토리)입니다
 	pushMu        sync.Mutex      // 접속 푸시 쿨다운(lastJoinPush) 동시 접근을 막습니다
@@ -1189,6 +1196,7 @@ func main() {
 		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체로는 600초(10분)에 로그인 120번까지
 		chatRL:        newRateLimiter(5, 3),     // 세션 하나당 5초에 메시지 3개까지
 		alert:         newAlerter(cfg.alertWebhook),
+		layout:        newFileLayoutStore(cfg.layoutJSON),
 	}
 
 	// 데모 모드가 아니면 SQLite 저장소를 열고 봇 파일 임포터를 시작합니다.
@@ -1268,6 +1276,7 @@ func main() {
 	mux.HandleFunc("/api/push/config", s.apiAuthed("GET", s.handlePushConfig))
 	mux.HandleFunc("/api/push/subscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushSubscribe(w, r) }))
 	mux.HandleFunc("/api/push/unsubscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushUnsubscribe(w, r) }))
+	mux.HandleFunc("/api/layout", s.api("GET", s.handleLayoutGet))
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작
