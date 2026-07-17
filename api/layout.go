@@ -60,7 +60,7 @@ func defaultLayout() []byte {
   "theme": { "mode": "auto" },
   "tabs": [
     { "id": "chat",     "label": {"ko":"채팅","en":"Chat"} },
-    { "id": "perf",     "label": {"ko":"성능","en":"Perf"} },
+    { "id": "perf",     "label": {"ko":"성능","en":"Performance"} },
     { "id": "timeline", "label": {"ko":"타임라인","en":"Timeline"} }
   ]
 }`)
