@@ -2,6 +2,8 @@
 // 프로덕션에서는 동일 출처(Go가 정적 사이트와 /api를 함께 서빙). 로컬 `next dev`에서는
 // NEXT_PUBLIC_API_BASE=http://localhost:8080으로 설정한다(PANEL_ALLOW_ORIGIN을 켠 Go).
 
+import { parseLayout, type Layout } from "./builder/schema";
+
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 const TOKEN_KEY = "mc_sv_panel_token";
 
@@ -237,4 +239,31 @@ export async function fetchTimeline(): Promise<Timeline> {
   const r = await authed("/api/timeline");
   if (!r.ok) throw new Error("timeline_failed");
   return (await r.json()) as Timeline;
+}
+
+// DEFAULT_LAYOUT은 서버 응답 실패 시 폴백. Go의 defaultLayout()과 동일한 기본 구성.
+export const DEFAULT_LAYOUT: Layout = {
+  version: 1,
+  meta: { title: "" },
+  theme: { mode: "auto" },
+  tabs: [
+    { id: "chat", label: { ko: "채팅", en: "Chat" } },
+    { id: "perf", label: { ko: "성능", en: "Perf" } },
+    { id: "timeline", label: { ko: "타임라인", en: "Timeline" } },
+  ],
+};
+
+// getLayout은 서버의 페이지 구성을 가져온다. 오류·손상 시 DEFAULT_LAYOUT을 반환해
+// 부트를 막지 않는다(회귀 0).
+export async function getLayout(): Promise<Layout> {
+  try {
+    const r = await fetch(`${BASE}/api/layout`);
+    if (r.ok) {
+      const l = parseLayout(await r.json());
+      if (l) return l;
+    }
+  } catch {
+    /* 무시 — 기본 반환 */
+  }
+  return DEFAULT_LAYOUT;
 }
