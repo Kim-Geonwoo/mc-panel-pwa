@@ -63,6 +63,7 @@ type config struct {
 	sessionSec   int64
 	allowOrigin  string
 	alertWebhook string
+	adminCode    string // 관리자 로그인 코드. 빈값(기본)이면 관리자 로그인 비활성
 	demo         bool
 	pushEvents   []string // 활성화된 웹 푸시 알림 종류(서버 권위). 빈 목록이면 푸시 전체 비활성
 	maintMarker  string   // 정기 점검 마커 파일 경로. 존재·신선하면 점검 중 다운 알림을 억제
@@ -191,6 +192,12 @@ func getenvBool(k string, def bool) bool {
 //
 //	비워 두면 경보를 로그로만 남깁니다.
 
+// adminCode: 관리자 로그인 코드(PANEL_ADMIN_CODE). 설정 시 이 코드로 로그인하면
+//
+//	레이아웃 발행(PUT /api/layout)이 가능한 관리자 세션이 발급됩니다. 비워 두면(기본)
+//	관리자 로그인이 비활성입니다. 데모 모드에서는 스튜디오 체험용으로 데모 코드(000000)
+//	세션에도 관리자 표시가 붙습니다(실제 발행은 데모 모드에서 차단).
+
 // pushEvents: 웹 푸시로 보낼 알림 종류(PANEL_PUSH_EVENTS, CSV). 기본 "server,join".
 //
 //	유효 토큰은 server(다운/복구)·join(플레이어 접속)뿐이며 그 외는 무시합니다.
@@ -230,6 +237,7 @@ func loadConfig() config {
 		sessionSec:   int64(getenvInt("PANEL_SESSION_SEC", 2*24*3600)),
 		allowOrigin:  getenv("PANEL_ALLOW_ORIGIN", ""),
 		alertWebhook: getenv("PANEL_ALERT_WEBHOOK", ""),
+		adminCode:    getenv("PANEL_ADMIN_CODE", ""),
 		demo:         getenvBool("PANEL_DEMO", false),
 		pushEvents:   parsePushEvents(getenv("PANEL_PUSH_EVENTS", "server,join")),
 		maintMarker:  getenv("PANEL_MAINT_MARKER", filepath.Join(br, ".maintenance")),
@@ -244,6 +252,7 @@ type session struct {
 	Exp      int64  `json:"exp"`
 	Nickname string `json:"nickname"`
 	Created  int64  `json:"created"`
+	Admin    bool   `json:"admin,omitempty"` // 관리자 세션 여부 (omitempty — 기존 세션 파일과 호환)
 }
 
 type sessionStore struct {
@@ -326,6 +335,12 @@ func genSID() (string, error) {
 
 // create는 새로운 세션을 생성하고, 그 세션 ID를 반환합니다. 세션은 ttl 초 후에 만료됩니다.
 func (s *sessionStore) create() (string, error) {
+	return s.createWith(false)
+}
+
+// createWith는 새로운 세션을 생성하고, 그 세션 ID를 반환합니다. admin이 true면
+// 레이아웃 발행 권한이 있는 관리자 세션으로 표시합니다. 세션은 ttl 초 후에 만료됩니다.
+func (s *sessionStore) createWith(admin bool) (string, error) {
 	sid, err := genSID()
 	if err != nil {
 		return "", err
@@ -334,7 +349,7 @@ func (s *sessionStore) create() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.purgeLocked(now)
-	s.data[sid] = &session{Exp: now + s.ttl, Created: now}
+	s.data[sid] = &session{Exp: now + s.ttl, Created: now, Admin: admin}
 	s.persistLocked()
 	return sid, nil
 }
@@ -628,6 +643,7 @@ type server struct {
 	loginRL       *rateLimiter    // IP별 로그인 시도 횟수를 셉니다
 	loginGlobalRL *rateLimiter    // 서버 전체 로그인 상한 — IP를 변경하여 시도하는 공격을 막습니다.
 	chatRL        *rateLimiter    // 세션(sid)별 채팅 전송 시도 횟수를 셉니다
+	layoutRL      *rateLimiter    // 세션(sid)별 레이아웃 발행 시도 횟수를 셉니다
 	alert         *alerter        // 인증 이상 징후를 로그·디스코드 웹훅으로 알립니다
 	store         *store          // 채팅·타임라인 SQLite 저장소 (데모 모드에서는 nil)
 	vapid         vapidKeys       // 웹 푸시 VAPID 키 (데모 모드·로드 실패 시 빈 값 → 푸시 비활성)
@@ -741,8 +757,11 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	// 로그인 코드 검증 (auth.json)
 
+	// 관리자 세션 여부 — 아래 코드 비교 결과에 따라 켭니다.
+	admin := false
+
 	// 데모 모드라면 데모용 코드와 비교,
-	// 아니면 auth.json에 저장된 코드와 비교
+	// 아니면 관리자 코드(설정된 경우) → auth.json에 저장된 코드 순으로 비교
 	if s.cfg.demo {
 		// 데모 모드에서는 코드를 갱신해 줄 봇이 없으므로, 미리 정해 둔 데모용 코드를 그대로 받아들입니다.
 		if subtleNE(code, demoLoginCode) {
@@ -750,6 +769,12 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_code"})
 			return
 		}
+		// 스튜디오 체험용 — 데모 세션은 레이아웃 발행 UI까지 볼 수 있게 관리자로 표시합니다.
+		// (실제 발행은 PUT /api/layout의 데모 모드 차단(403 demo)으로 막혀 있습니다.)
+		admin = true
+	} else if s.cfg.adminCode != "" && len(code) == len(s.cfg.adminCode) && !subtleNE(code, s.cfg.adminCode) {
+		// 관리자 코드 일치 — 관리자 세션을 발급합니다. (빈값이면 비교 자체를 건너뜁니다)
+		admin = true
 	} else {
 		var af authFile
 		if err := readJSON(s.cfg.authJSON, &af); err != nil || af.Code == "" {
@@ -763,14 +788,19 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sid, err := s.sessions.create()
+	sid, err := s.sessions.createWith(admin)
 
 	// 세션 생성에 실패하면 서버 오류로 응답
 	if err != nil {
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
 	}
-	log.Printf("login ok from %s", ip)
+	// 관리자 코드 로그인은 감사 목적으로 구분해 남깁니다. (데모 세션의 admin 표시는 제외)
+	if admin && !s.cfg.demo {
+		log.Printf("admin login ok from %s", ip)
+	} else {
+		log.Printf("login ok from %s", ip)
+	}
 	s.writeJSON(w, http.StatusOK, map[string]any{"token": sid})
 }
 
@@ -794,9 +824,9 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleMe - sid를 조회하여, 해당하는 sid의 닉네임을 반환 (공통 체인: s.apiAuthed("GET"))
+// handleMe - sid를 조회하여, 해당하는 sid의 닉네임과 관리자 여부를 반환 (공통 체인: s.apiAuthed("GET"))
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request, _ string, sess session) {
-	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": sess.Nickname})
+	s.writeJSON(w, http.StatusOK, map[string]any{"nickname": sess.Nickname, "admin": sess.Admin})
 }
 
 // handleNickname - 닉네임 설정 처리 (공통 체인: s.apiAuthed("POST"))
@@ -1195,6 +1225,7 @@ func main() {
 		loginRL:       newRateLimiter(600, 10),  // IP 하나당 600초(10분)에 로그인 10번까지
 		loginGlobalRL: newRateLimiter(600, 120), // 서버 전체로는 600초(10분)에 로그인 120번까지
 		chatRL:        newRateLimiter(5, 3),     // 세션 하나당 5초에 메시지 3개까지
+		layoutRL:      newRateLimiter(60, 10),   // 세션 하나당 60초(1분)에 레이아웃 발행 10번까지
 		alert:         newAlerter(cfg.alertWebhook),
 		layout:        newFileLayoutStore(cfg.layoutJSON),
 	}
@@ -1261,6 +1292,7 @@ func main() {
 			s.loginRL.sweep()         // 오래된 레이트 리밋 기록 제거
 			s.loginGlobalRL.sweep()   // 오래된 레이트 리밋 기록 제거
 			s.chatRL.sweep()          // 오래된 레이트 리밋 기록 제거
+			s.layoutRL.sweep()        // 오래된 레이트 리밋 기록 제거
 		}
 	}()
 
@@ -1277,7 +1309,7 @@ func main() {
 	mux.HandleFunc("/api/push/config", s.apiAuthed("GET", s.handlePushConfig))
 	mux.HandleFunc("/api/push/subscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushSubscribe(w, r) }))
 	mux.HandleFunc("/api/push/unsubscribe", s.apiAuthed("POST", func(w http.ResponseWriter, r *http.Request, _ string, _ session) { s.handlePushUnsubscribe(w, r) }))
-	mux.HandleFunc("/api/layout", s.api("GET", s.handleLayoutGet))
+	mux.HandleFunc("/api/layout", s.api("GET,PUT", s.handleLayout)) // GET=공개 조회, PUT=관리자 발행
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작
