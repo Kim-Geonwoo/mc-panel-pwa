@@ -1,7 +1,8 @@
 "use client";
 
 // tabbar 블록 — 세그먼트 탭 컨트롤. 순서·표시는 visibleTabs(레이아웃∩개인설정),
-// 라벨은 레이아웃 tabs의 i18n 맵을 우선하고 없으면 현행 사전 키로 폴백한다.
+// 라벨은 레이아웃 tabs의 i18n 맵을 우선하고 없으면 현행 사전 키로, 미지 id는
+// id 그대로 폴백한다(visibleTabs는 string[] — 미지 탭도 통과, B1).
 import { useI18n } from "../../i18n";
 import { usePanel } from "../context";
 

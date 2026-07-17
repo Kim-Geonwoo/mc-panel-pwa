@@ -16,7 +16,7 @@ import {
 } from "react";
 import { fetchStatus, Status, getMe, UnauthorizedError } from "../api";
 import type { Layout } from "./schema";
-import { resolveTabs, type KnownTab } from "./resolveTabs";
+import { resolveTabs } from "./resolveTabs";
 
 type Player = Status["players"][number];
 
@@ -29,7 +29,7 @@ export type PanelCtx = {
   tab: string;
   setTab: (t: string) => void;
   tabRef: MutableRefObject<string>; // 채팅 폴러의 미확인 집계용(리렌더 없이 현재 탭 참조)
-  visibleTabs: KnownTab[];
+  visibleTabs: string[]; // 미지 탭 id도 포함(B1 — 라벨·콘텐츠 폴백은 소비자가 처리)
   tabPrefs: { perf: boolean; timeline: boolean };
   updateTabPrefs: (p: { perf: boolean; timeline: boolean }) => void;
   status: Status | null;
@@ -117,7 +117,7 @@ export function PanelProvider({
   // 현재 활성 탭이 (개인 설정이나 레이아웃으로) 숨겨졌으면 채팅으로 되돌린다.
   // resolveTabs는 항상 채팅을 포함하므로 폴백은 안전하다.
   useEffect(() => {
-    if (!resolveTabs(layout, tabPrefs).includes(tab as KnownTab)) setTab("chat");
+    if (!resolveTabs(layout, tabPrefs).includes(tab)) setTab("chat");
   }, [tab, tabPrefs, layout]);
 
   // 접속현황 폴링 — 1분에 한 번
