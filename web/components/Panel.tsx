@@ -13,6 +13,8 @@ import {
   UnauthorizedError,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
+import type { Layout } from "../lib/builder/schema";
+import { resolveTabs } from "../lib/builder/resolveTabs";
 import Avatar from "./Avatar";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
@@ -54,7 +56,7 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[], capTail = true)
 
 const TABS_KEY = "mc_sv_panel_tabs";
 
-export default function Panel({ onLogout }: { onLogout: () => void }) {
+export default function Panel({ onLogout, layout }: { onLogout: () => void; layout: Layout }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -178,12 +180,11 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
     }
   }
 
-  // 숨긴 탭이 현재 활성이면 채팅으로 되돌린다
+  // 현재 활성 탭이 (개인 설정이나 레이아웃으로) 숨겨졌으면 채팅으로 되돌린다.
+  // resolveTabs는 항상 채팅을 포함하므로 폴백은 안전하다.
   useEffect(() => {
-    if ((tab === "perf" && !tabPrefs.perf) || (tab === "timeline" && !tabPrefs.timeline)) {
-      setTab("chat");
-    }
-  }, [tab, tabPrefs]);
+    if (!resolveTabs(layout, tabPrefs).includes(tab)) setTab("chat");
+  }, [tab, tabPrefs, layout]);
 
   // 접속현황 폴링 — 1분에 한 번
   useEffect(() => {
@@ -314,6 +315,9 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
 
   const up = status?.server_up ?? false;
   const players = status?.players ?? [];
+  // 보이는 탭 순서 = 서버 레이아웃 tabs ∩ 개인 표시설정(채팅 상시). 증분 1은 알려진
+  // 탭만 다루므로 렌더링은 아래 하드코딩을 유지한다(일반 렌더러는 증분 2).
+  const visibleTabs = resolveTabs(layout, tabPrefs);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -432,9 +436,7 @@ export default function Panel({ onLogout }: { onLogout: () => void }) {
 
       {/* 탭 */}
       <div role="tablist" aria-label={t("panel.tabsAria")} className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
-        {(["chat", "perf", "timeline"] as const)
-          .filter((tb) => tb === "chat" || (tb === "perf" ? tabPrefs.perf : tabPrefs.timeline))
-          .map((tb) => (
+        {visibleTabs.map((tb) => (
           <button
             key={tb}
             role="tab"
