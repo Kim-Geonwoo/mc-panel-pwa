@@ -37,6 +37,10 @@ Next.js front end served by a single, dependency-free Go binary.
   changes tab set/order/labels, title, theme, and screen block placement without
   a rebuild. A whitelist block registry and a recursive renderer stay safe on
   unknown types and corrupt input (fallbacks, partial-failure isolation).
+- **Studio (visual editor)** — an admin-only `/studio` route with a palette, a live-preview
+  canvas, a drag-and-drop structure tree, and an inspector to visually compose and publish
+  the panel. Draft autosave, undo/redo, pre-publish schema/limit checks. Admin login via
+  `PANEL_ADMIN_CODE`.
 - **PWA** — installable, offline app shell via a service worker; light/dark.
 - **Hardened** — loopback-bound API behind a tunnel, server-side sessions,
   per-IP/-session rate limiting, input sanitization, strict security headers.
@@ -103,7 +107,7 @@ Status/perf are read from JSON files written by server-side KubeJS — and
 | GET/POST | `/api/chat` | Bearer | Read the merged feed (`since` forward poll · `before` history) / post a web message (returns `{id,ts}` on store) |
 | GET | `/api/timeline` | Bearer | Join/leave events for the timeline tab |
 | GET | `/api/layout` | — | Per-server page composition (layout JSON). Falls back to the bundled default when the file is missing or corrupt |
-| PUT | `/api/layout` | loopback | Store a layout (schema-validated, atomic write) — never on the exposed listener |
+| PUT | `/api/layout` | Bearer (admin) | Publish a layout — schema-validated, 10 writes/min per session, audit-logged. 403 in demo mode. Also available unauthenticated on the loopback listener (tooling) |
 | GET/POST | `/api/push/config` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | Web push (VAPID): config (key + server-enabled kinds via `PANEL_PUSH_EVENTS`), subscribe (per-kind `topics`), unsubscribe — server down/up + join alerts. iOS needs 16.4+ home-screen install |
 | GET | `/healthz` | — | Loopback-only liveness probe (uptime monitoring) |
 | * | `/internal/*` | loopback | Bot-only internal API (ingest, session list/revoke) — never on the exposed listener |
@@ -169,7 +173,7 @@ Roadmap, with status per item:
 - [ ] Retire the legacy file importer once the private Discord bot fully migrates to `POST /internal/ingest`
 - [ ] Build-time locale for PWA metadata (document title, manifest, push fallback text)
 - [x] Unit tests for the web UI (vitest — schema, renderer, tab planning; the Go API is at ~82% statement coverage)
-- [ ] Drag-and-drop visual editor — assemble blocks on a canvas from the registry palette, preview, publish
+- [x] Drag-and-drop visual editor (`/studio`) — palette, live preview, structure-tree DnD, publish
 - [ ] README screenshots
 
 ## License
