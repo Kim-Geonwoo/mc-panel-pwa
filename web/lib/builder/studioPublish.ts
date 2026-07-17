@@ -7,12 +7,18 @@ import { parseLayout, type Block, type Layout } from "./schema";
 
 const NODE_LIMIT = 500;
 const DEPTH_LIMIT = 20;
+// 서버(api/layout.go maxLayoutBytes)와 동일 기준 — 직렬화 본문의 UTF-8 바이트 수.
+const BYTE_LIMIT = 256 * 1024;
 
 export type PublishCheck = { ok: true } | { ok: false; reasonKey: string };
 
 // 발행 가능 여부를 판정한다. 실패 시 reasonKey는 i18n 사전의 studio.check.* 키.
 // screen과 각 탭 content 블록을 개별 트리로 검사한다(parseLayout의 계수 방식과 동일).
 export function validateForPublish(l: Layout): PublishCheck {
+  // 바이트 상한 — 서버가 본문을 읽기 전에 거부하는 한도라 가장 먼저 검사한다.
+  // putLayout이 보내는 본문과 동일한 직렬화(JSON.stringify)를 UTF-8 바이트로 센다.
+  if (new TextEncoder().encode(JSON.stringify(l)).length > BYTE_LIMIT)
+    return { ok: false, reasonKey: "studio.check.bytes" };
   const trees: Block[] = [];
   if (l.screen) trees.push(l.screen);
   for (const tab of l.tabs ?? []) for (const c of tab.content ?? []) trees.push(c);

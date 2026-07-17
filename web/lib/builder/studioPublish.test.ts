@@ -15,6 +15,16 @@ function wide(n: number): Block {
   return { type: "vstack", children: Array.from({ length: n - 1 }, () => ({ type: "spacer" })) };
 }
 
+// 직렬화 결과가 정확히 target 바이트가 되도록 ko 문구를 ASCII로 패딩한 레이아웃.
+function layoutOfBytes(target: number): Layout {
+  const shell: Layout = { version: 1, screen: { type: "text", props: { ko: "" } } };
+  const shellBytes = new TextEncoder().encode(JSON.stringify(shell)).length;
+  return {
+    version: 1,
+    screen: { type: "text", props: { ko: "a".repeat(target - shellBytes) } },
+  };
+}
+
 describe("validateForPublish", () => {
   it("accepts the default layout and a small screen", () => {
     expect(validateForPublish(DEFAULT_LAYOUT).ok).toBe(true);
@@ -40,6 +50,26 @@ describe("validateForPublish", () => {
       tabs: [{ id: "chat", label: { ko: "채팅", en: "Chat" }, content: [chain(21)] }],
     };
     expect(validateForPublish(l)).toEqual({ ok: false, reasonKey: "studio.check.depth" });
+  });
+
+  it("accepts exactly 256KiB and rejects one byte over", () => {
+    const limit = 256 * 1024;
+    expect(validateForPublish(layoutOfBytes(limit)).ok).toBe(true);
+    expect(validateForPublish(layoutOfBytes(limit + 1))).toEqual({
+      ok: false,
+      reasonKey: "studio.check.bytes",
+    });
+  });
+
+  it("counts UTF-8 bytes, not UTF-16 code units", () => {
+    // "가" = UTF-8 3바이트·UTF-16 1유닛 — 문자 수로는 한도 미만이어도 바이트로는 초과.
+    // 서버(maxLayoutBytes)가 바이트 기준이므로 사전검사도 바이트로 세는지 고정한다.
+    const l: Layout = {
+      version: 1,
+      screen: { type: "text", props: { ko: "가".repeat(90_000) } },
+    };
+    expect(JSON.stringify(l).length).toBeLessThan(256 * 1024);
+    expect(validateForPublish(l)).toEqual({ ok: false, reasonKey: "studio.check.bytes" });
   });
 
   it("flags schema violations (e.g. overlong title)", () => {

@@ -19,7 +19,7 @@ import {
   type BlockPath,
 } from "../../lib/builder/editOps";
 import { keyedScreen } from "../../lib/builder/studioTree";
-import { saveDraft } from "../../lib/builder/studioDraft";
+import { clearDraft, saveDraft } from "../../lib/builder/studioDraft";
 import {
   canRedo,
   canUndo,
@@ -88,10 +88,27 @@ export default function StudioApp({
     [apply, draft, screen],
   );
 
+  // undo/redo 공통 경로. 히스토리 이동도 편집이다 — "발행됨" 표시를 무효화하고(B5)
+  // 자동저장을 되살린다. 이동 후 같은 경로에 다른 블록이 올 수 있으므로 선택은
+  // 해제가 안전 기본값이다(B7 — key 기반 선택 추적은 스코프 도입 후 재평가).
+  const applyHist = useCallback(
+    (fn: (h: StudioHistory) => StudioHistory) => {
+      const next = fn(hist);
+      if (next === hist) return; // 이동 불가(no-op) — 상태 오염 방지
+      dirtyRef.current = true;
+      setPub({ state: "idle" });
+      setSelected(null);
+      setHist(next);
+    },
+    [hist],
+  );
+
   // 드래프트 자동저장(300ms 디바운스) — 편집 시작 후에만.
   useEffect(() => {
     if (!dirtyRef.current) return;
     const id = setTimeout(() => {
+      // 대기 중 발행이 성공해 드래프트가 지워졌을 수 있다 — 발화 시점에 재확인(B4).
+      if (!dirtyRef.current) return;
       saveDraft(draft);
       setSavedOnce(true);
     }, 300);
@@ -112,15 +129,15 @@ export default function StudioApp({
       const k = e.key.toLowerCase();
       if (k === "z") {
         e.preventDefault();
-        setHist((h) => (e.shiftKey ? redoHistory(h) : undoHistory(h)));
+        applyHist(e.shiftKey ? redoHistory : undoHistory);
       } else if (k === "y") {
         e.preventDefault();
-        setHist((h) => redoHistory(h));
+        applyHist(redoHistory);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [applyHist]);
 
   // ── 트리 편집(전부 editOps 경유) ──────────────────────────────────────────
   const onSelect = useCallback((p: BlockPath | null) => {
@@ -199,6 +216,11 @@ export default function StudioApp({
     setPub({ state: "busy" });
     try {
       await putLayout(draft);
+      // 발행 성공 = 드래프트와 발행본 일치(스펙 §5) — 로컬 드래프트를 지워 다음
+      // 방문이 서버 발행본에서 시작하게 한다(B4). 편집 재개 시 드래프트 재생성은
+      // 기존 dirty 게이트가 처리한다.
+      clearDraft();
+      dirtyRef.current = false;
       setPub({ state: "ok" });
     } catch (e) {
       setPub({ state: "err", errKey: publishErrorKey(e) });
@@ -234,8 +256,8 @@ export default function StudioApp({
         onToggleEditing={setEditing}
         canUndo={canUndo(hist)}
         canRedo={canRedo(hist)}
-        onUndo={() => setHist(undoHistory)}
-        onRedo={() => setHist(redoHistory)}
+        onUndo={() => applyHist(undoHistory)}
+        onRedo={() => applyHist(redoHistory)}
         onRestore={onRestore}
         publishDisabled={!check.ok}
         publishBusy={pub.state === "busy"}
