@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { getMe, getToken, UnauthorizedError } from "../lib/api";
+import { DEFAULT_LAYOUT, getLayout, getMe, getToken, UnauthorizedError } from "../lib/api";
+import { applyTheme } from "../lib/builder/applyTheme";
+import type { Layout } from "../lib/builder/schema";
 import { useI18n } from "../lib/i18n";
 import Login from "../components/Login";
 import NicknameSetup from "../components/NicknameSetup";
@@ -14,6 +16,7 @@ type Stage = "boot" | "login" | "nickname" | "app";
 export default function Home() {
   const { t } = useI18n();
   const [stage, setStage] = useState<Stage>("boot");
+  const [layout, setLayout] = useState<Layout>(DEFAULT_LAYOUT);
 
   // 진입 화면 결정: 토큰 없음 -> 로그인, 토큰 있으나 닉네임 없음 -> 닉네임, 그 외 -> 앱.
   const resolve = useCallback(async () => {
@@ -34,6 +37,16 @@ export default function Home() {
   useEffect(() => {
     resolve();
   }, [resolve]);
+
+  // 부트 시 서버 레이아웃을 조회해 테마(accent)·타이틀을 반영한다. 실패 시 기본
+  // 레이아웃(accent 없음·타이틀 빈값)이라 화면은 그대로다(회귀 0).
+  useEffect(() => {
+    getLayout().then((l) => {
+      setLayout(l);
+      applyTheme(l.theme);
+      if (l.meta?.title) document.title = l.meta.title;
+    });
+  }, []);
 
   const onLogout = useCallback(() => setStage("login"), []);
 
@@ -64,7 +77,7 @@ export default function Home() {
         )}
         {stage === "app" && (
           <motion.div key="app" {...fade} className="flex min-h-0 flex-1 flex-col">
-            <Panel onLogout={onLogout} />
+            <Panel onLogout={onLogout} layout={layout} />
           </motion.div>
         )}
       </AnimatePresence>

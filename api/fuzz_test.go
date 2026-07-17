@@ -227,3 +227,14 @@ func FuzzHasTopic(f *testing.F) {
 		}
 	})
 }
+
+func FuzzParseLayout(f *testing.F) {
+	f.Add([]byte(`{"version":1}`))
+	f.Add([]byte(`{"version":1,"screen":{"type":"vstack","children":[]}}`))
+	f.Add([]byte(``))
+	f.Add([]byte(`{`))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		// 손상/악성 입력이어도 절대 panic하지 않아야 한다(안전 거부/파싱).
+		_, _ = parseLayout(b)
+	})
+}

@@ -64,6 +64,27 @@ jobs:
       - name: 빌드(정적 익스포트)
         run: npm run build
 
+  web-test:
+    name: Next.js (test)
+    runs-on: ubuntu-latest
+    # SDUI 레이아웃 스키마·파서·탭 해석기 등 순수 로직의 단위 테스트(vitest). 빌드와
+    # 분리해 실패 지점을 명확히 하고, 필수 체크로 승격할 수 있게 독립 잡으로 둔다.
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: 단위 테스트(vitest)
+        run: npm test
+
   demo-smoke:
     name: Demo smoke (데모 실행 확인)
     runs-on: ubuntu-latest
@@ -110,7 +131,10 @@ jobs:
             | jq -e 'has("server_up")' >/dev/null || { echo "::error::/api/status에 server_up 없음"; exit 1; }
           # ③ 정적: 루트가 HTML을 서빙
           curl -fs http://127.0.0.1:8081/ | grep -qi '<html' || { echo "::error::루트가 HTML을 서빙하지 않음"; exit 1; }
-          echo "데모 스모크 통과: 로그인·상태·정적 3가지 모두 정상"
+          # ④ 레이아웃: 공개 GET이 200 + version:1 JSON을 반환(SDUI 부트 회귀 방지)
+          curl -fs http://127.0.0.1:8081/api/layout \
+            | jq -e '.version == 1' >/dev/null || { echo "::error::/api/layout이 version:1을 반환하지 않음"; exit 1; }
+          echo "데모 스모크 통과: 로그인·상태·정적·레이아웃 4가지 모두 정상"
       - name: 데모 패널 종료
         if: always()
         run: '[ -f panel.pid ] && kill "$(cat panel.pid)" 2>/dev/null || true'
