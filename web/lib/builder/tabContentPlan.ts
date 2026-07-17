@@ -3,6 +3,8 @@ import type { Block, TabSpec } from "./schema";
 
 export type TabPlanEntry = {
   tabId: string;
+  // 실제로 렌더할 블록: 활성 탭은 전체, 비활성 탭은 keepMounted 블록만 —
+  // 스스로 숨지 못하는 블록이 비활성 탭에서 노출되는 것을 막는다.
   blocks: Block[];
   active: boolean;
   // 렌더 여부: 활성 탭이거나, keepMounted 블록을 포함해 숨김 상태로도 마운트를
@@ -25,13 +27,14 @@ export function planTabContent(
 ): TabPlanEntry[] {
   return visibleTabs.map((tabId) => {
     const lt = layoutTabs?.find((x) => x.id === tabId);
-    const blocks = lt?.content?.length ? lt.content : DEFAULT_CONTENT[tabId] ?? [];
+    const all = lt?.content?.length ? lt.content : DEFAULT_CONTENT[tabId] ?? [];
     const active = tabId === activeTab;
+    const blocks = active ? all : all.filter((b) => isKeepMounted(b.type));
     return {
       tabId,
       blocks,
       active,
-      mounted: active || blocks.some((b) => isKeepMounted(b.type)),
+      mounted: active || blocks.length > 0,
     };
   });
 }

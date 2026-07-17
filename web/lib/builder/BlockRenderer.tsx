@@ -14,33 +14,41 @@ class BlockBoundary extends Component<{ children: ReactNode }, { failed: boolean
     return { failed: true };
   }
   componentDidCatch(err: unknown) {
-    console.warn("block render failed:", err);
+    // 운영 콘솔 스팸 방지 — 죽은 블록은 조용히 사라지고, 경고는 개발에서만 남긴다.
+    if (process.env.NODE_ENV !== "production") console.warn("block render failed:", err);
   }
   render() {
     return this.state.failed ? null : this.props.children;
   }
 }
 
-// 미지 타입 폴백 — 개발은 눈에 띄는 표기, 운영은 조용히 생략(스펙 §2 규칙).
-function UnknownBlock({ type }: { type: string }) {
+// 폴백 — 개발은 사유(미지 타입/props 검증 실패)를 표기, 운영은 조용히 생략(스펙 §2 규칙).
+function UnknownBlock({ type, reason }: { type: string; reason: "unknown" | "props" }) {
   if (process.env.NODE_ENV === "production") return null;
   return (
     <div className="rounded-lg border border-dashed border-line px-3 py-2 text-xs text-muted">
-      unknown block: {type}
+      {reason === "props" ? "invalid props" : "unknown block"}: {type}
     </div>
   );
+}
+
+// 자식 블록의 React key — 레이아웃 편집·재정렬 시 상태가 다른 블록으로 옮겨붙지
+// 않도록 선택적 props.key(문자열)를 우선하고, 없으면 타입 한정 인덱스로 폴백한다.
+export function blockKey(node: Block, index: number): string {
+  const k = node.props?.key;
+  return typeof k === "string" ? k : `${node.type}:${index}`;
 }
 
 export default function BlockRenderer({ node }: { node: Block }) {
   // Object.hasOwn — "__proto__" 같은 타입명이 프로토타입 체인을 타는 것을 차단.
   const def = Object.hasOwn(REGISTRY, node.type) ? REGISTRY[node.type] : undefined;
-  if (!def) return <UnknownBlock type={node.type} />;
+  if (!def) return <UnknownBlock type={node.type} reason="unknown" />;
   if (def.propsSchema && !def.propsSchema.safeParse(node.props ?? {}).success) {
-    return <UnknownBlock type={node.type} />;
+    return <UnknownBlock type={node.type} reason="props" />;
   }
   const kids =
     def.kind === "layout"
-      ? node.children?.map((c, i) => <BlockRenderer key={i} node={c} />)
+      ? node.children?.map((c, i) => <BlockRenderer key={blockKey(c, i)} node={c} />)
       : undefined;
   const C = def.component;
   return (

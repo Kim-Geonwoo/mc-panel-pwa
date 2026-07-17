@@ -6,7 +6,7 @@
 import { Fragment } from "react";
 import { usePanel } from "../context";
 import { REGISTRY } from "../registry";
-import BlockRenderer from "../BlockRenderer";
+import BlockRenderer, { blockKey } from "../BlockRenderer";
 import { planTabContent } from "../tabContentPlan";
 
 export default function TabContent() {
@@ -23,7 +23,7 @@ export default function TabContent() {
         e.mounted ? (
           <Fragment key={e.tabId}>
             {e.blocks.map((b, i) => (
-              <BlockRenderer key={i} node={b} />
+              <BlockRenderer key={blockKey(b, i)} node={b} />
             ))}
           </Fragment>
         ) : null,

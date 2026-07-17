@@ -37,9 +37,40 @@ describe("BlockRenderer", () => {
     expect(screen.getByText("생존")).toBeInTheDocument();
   });
 
-  it("falls back when props fail schema validation", () => {
+  it("falls back when props fail schema validation (distinct dev message)", () => {
     draw({ type: "text", props: { variant: "huge" } });
-    expect(screen.getByText(/unknown block/)).toBeInTheDocument();
+    expect(screen.getByText(/invalid props: text/)).toBeInTheDocument();
+  });
+
+  it("uses props.key or type-scoped index as stable child keys (no crash on reorder)", () => {
+    const { rerender } = render(
+      <LangProvider>
+        <BlockRenderer
+          node={{
+            type: "vstack",
+            children: [
+              { type: "text", props: { key: "a", ko: "첫" } },
+              { type: "text", props: { key: "b", ko: "둘" } },
+            ],
+          }}
+        />
+      </LangProvider>,
+    );
+    rerender(
+      <LangProvider>
+        <BlockRenderer
+          node={{
+            type: "vstack",
+            children: [
+              { type: "text", props: { key: "b", ko: "둘" } },
+              { type: "text", props: { key: "a", ko: "첫" } },
+            ],
+          }}
+        />
+      </LangProvider>,
+    );
+    expect(screen.getByText("첫")).toBeInTheDocument();
+    expect(screen.getByText("둘")).toBeInTheDocument();
   });
 
   it("is safe against prototype-polluting type names", () => {
