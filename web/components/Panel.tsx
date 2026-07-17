@@ -6,15 +6,13 @@ import {
   ChatMessage,
   fetchChat,
   fetchChatBefore,
-  fetchStatus,
-  getMe,
   sendChat,
   Status,
   UnauthorizedError,
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import type { Layout } from "../lib/builder/schema";
-import { resolveTabs } from "../lib/builder/resolveTabs";
+import { PanelProvider, usePanel } from "../lib/builder/context";
 import Avatar from "./Avatar";
 import ThemeToggle from "./ThemeToggle";
 import PerfView from "./PerfView";
@@ -25,7 +23,6 @@ import TimelineView from "./TimelineView";
 
 type Player = Status["players"][number];
 
-const STATUS_MS = 60000; // 접속현황 갱신: 1분
 const CHAT_MS = 2000;
 
 const SRC: Record<ChatMessage["source"], { labelKey: string; cls: string }> = {
@@ -54,28 +51,44 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[], capTail = true)
   return capTail ? merged.slice(-3000) : merged;
 }
 
-const TABS_KEY = "mc_sv_panel_tabs";
-
+// 공유 상태(탭·접속현황·닉네임·미확인·연결)는 PanelProvider가, 채팅 내부 상태는
+// 셸이 소유한다(추후 ChatFeed 블록으로 이동 예정).
 export default function Panel({ onLogout, layout }: { onLogout: () => void; layout: Layout }) {
+  return (
+    <PanelProvider layout={layout} onLogout={onLogout}>
+      <PanelShell />
+    </PanelProvider>
+  );
+}
+
+function PanelShell() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<"chat" | "perf" | "timeline">("chat");
+  const {
+    onLogout,
+    tab,
+    setTab,
+    tabRef,
+    visibleTabs,
+    tabPrefs,
+    updateTabPrefs,
+    status,
+    tpsHist,
+    up,
+    players,
+    nick,
+    setNick,
+    unread,
+    setUnread,
+    connLost,
+    setConnLost,
+  } = usePanel();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 성능/타임라인 탭 표시 여부(채팅은 항상 표시). 정적 export 프리렌더에서 localStorage가
-  // 없으므로 기본값으로 시작하고, 마운트 후 이펙트에서 복원한다.
-  const [tabPrefs, setTabPrefs] = useState<{ perf: boolean; timeline: boolean }>({
-    perf: true,
-    timeline: true,
-  });
-  const [status, setStatus] = useState<Status | null>(null);
-  const [tpsHist, setTpsHist] = useState<number[]>([]); // 상태 폴링(1분)마다 쌓는 TPS 추세
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [localMsgs, setLocalMsgs] = useState<LocalMsg[]>([]);
-  const [nick, setNick] = useState("");
   const sinceRef = useRef(0);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [chatErr, setChatErr] = useState<string | null>(null);
-  const [connLost, setConnLost] = useState(false);
   const [chatLoaded, setChatLoaded] = useState(false); // 첫 채팅 응답 도착 여부(스켈레톤 해제)
   const [tpsOpen, setTpsOpen] = useState(false);
   const [playersOpen, setPlayersOpen] = useState(false);
@@ -83,17 +96,12 @@ export default function Panel({ onLogout, layout }: { onLogout: () => void; layo
   const feedRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const firstRef = useRef(true);
-  const [unread, setUnread] = useState(0);
-  const tabRef = useRef(tab);
   const savedScrollRef = useRef(0); // 탭 이동 후 복귀 시 스크롤 위치 복원용
   const msgsRef = useRef<ChatMessage[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const loadingOlderRef = useRef(false);
   const hasMoreRef = useRef(true); // 과거 메시지가 더 있는지 (50개 미만 응답 시 소진)
 
-  useEffect(() => {
-    tabRef.current = tab;
-  }, [tab]);
   useEffect(() => {
     msgsRef.current = msgs;
   }, [msgs]);
@@ -138,77 +146,6 @@ export default function Panel({ onLogout, layout }: { onLogout: () => void; layo
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
     });
   }
-
-  // 브라우저 오프라인 신호 — 폴링 실패를 기다리지 않고 즉시 배너 반영
-  useEffect(() => {
-    const on = () => setConnLost(false);
-    const off = () => setConnLost(true);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-    };
-  }, []);
-
-  // 낙관적 전송 표시에 쓸 내 닉네임 (실패해도 무해 — 폴백 표기)
-  useEffect(() => {
-    getMe()
-      .then((m) => setNick(m.nickname))
-      .catch(() => {});
-  }, []);
-
-  // 탭 표시 설정 복원(둘 다 기본 true)
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TABS_KEY);
-      if (raw) {
-        const p = JSON.parse(raw) as { perf?: boolean; timeline?: boolean };
-        setTabPrefs({ perf: p.perf !== false, timeline: p.timeline !== false });
-      }
-    } catch {
-      /* 무시 */
-    }
-  }, []);
-
-  function updateTabPrefs(p: { perf: boolean; timeline: boolean }) {
-    setTabPrefs(p);
-    try {
-      localStorage.setItem(TABS_KEY, JSON.stringify(p));
-    } catch {
-      /* 무시 */
-    }
-  }
-
-  // 현재 활성 탭이 (개인 설정이나 레이아웃으로) 숨겨졌으면 채팅으로 되돌린다.
-  // resolveTabs는 항상 채팅을 포함하므로 폴백은 안전하다.
-  useEffect(() => {
-    if (!resolveTabs(layout, tabPrefs).includes(tab)) setTab("chat");
-  }, [tab, tabPrefs, layout]);
-
-  // 접속현황 폴링 — 1분에 한 번
-  useEffect(() => {
-    let alive = true;
-    let t: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        const s = await fetchStatus();
-        if (alive) {
-          setStatus(s);
-          // 서버가 켜져 있을 때만 추세에 반영 (최근 30포인트 ≈ 30분)
-          if (s.server_up && s.tps >= 0) setTpsHist((p) => [...p, s.tps].slice(-30));
-        }
-      } catch (e) {
-        if (e instanceof UnauthorizedError) return onLogout();
-      }
-      if (alive) t = setTimeout(tick, STATUS_MS);
-    };
-    tick();
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [onLogout]);
 
   // 채팅 폴링 — 2초마다 증분
   useEffect(() => {
@@ -312,12 +249,6 @@ export default function Panel({ onLogout, layout }: { onLogout: () => void; layo
       setSending(false);
     }
   }
-
-  const up = status?.server_up ?? false;
-  const players = status?.players ?? [];
-  // 보이는 탭 순서 = 서버 레이아웃 tabs ∩ 개인 표시설정(채팅 상시). 증분 1은 알려진
-  // 탭만 다루므로 렌더링은 아래 하드코딩을 유지한다(일반 렌더러는 증분 2).
-  const visibleTabs = resolveTabs(layout, tabPrefs);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
