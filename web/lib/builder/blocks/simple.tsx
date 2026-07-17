@@ -1,8 +1,12 @@
 "use client";
 
-// 컨텍스트가 필요 없는 단순 블록들. 클래스 문자열은 현행 Panel UI와 동일하게 유지한다.
+// 단순 블록들 + 기존 컴포넌트의 얇은 래퍼. 클래스 문자열은 현행 Panel UI와 동일하게 유지한다.
 import { useI18n } from "../../i18n";
+import { usePanel } from "../context";
 import Logo from "../../../components/Logo";
+import ThemeToggle from "../../../components/ThemeToggle";
+import PerfView from "../../../components/PerfView";
+import TimelineView from "../../../components/TimelineView";
 import type { BlockComponentProps } from "../registry";
 
 export function VStack({ children }: BlockComponentProps) {
@@ -30,4 +34,36 @@ export function TextBlock({ node }: BlockComponentProps) {
 export function LogoBlock({ node }: BlockComponentProps) {
   const p = (node.props ?? {}) as { size?: number };
   return <Logo size={p.size ?? 44} />;
+}
+
+export function Header({ children }: BlockComponentProps) {
+  return (
+    <header className="pt-safe flex shrink-0 items-center justify-between px-5 pb-3">{children}</header>
+  );
+}
+
+// 연결 끊김 배너 — 오프라인·서버 무응답 공통
+export function ConnBanner() {
+  const { t } = useI18n();
+  const { connLost } = usePanel();
+  if (!connLost) return null;
+  return (
+    <div className="mx-5 mb-2 shrink-0 rounded-xl border border-line bg-card px-3 py-1.5 text-center text-xs font-medium text-danger">
+      {t("panel.connLost")}
+    </div>
+  );
+}
+
+export function ThemeToggleBlock() {
+  return <ThemeToggle />;
+}
+
+export function PerfViewBlock() {
+  const { up, onLogout } = usePanel();
+  return <PerfView serverUp={up} onLogout={onLogout} />;
+}
+
+export function TimelineViewBlock() {
+  const { onLogout } = usePanel();
+  return <TimelineView onLogout={onLogout} />;
 }
