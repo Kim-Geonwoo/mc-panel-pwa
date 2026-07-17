@@ -96,11 +96,13 @@ export async function logout(): Promise<void> {
   }
 }
 
-// 세션 닉네임을 반환한다(아직 설정 안 됐으면 빈 문자열).
-export async function getMe(): Promise<{ nickname: string }> {
+// 세션 닉네임(아직 설정 안 됐으면 빈 문자열)과 관리자 여부를 반환한다.
+// admin은 구버전 서버가 내려주지 않을 수 있으므로 명시적 true만 인정한다(기본 false).
+export async function getMe(): Promise<{ nickname: string; admin: boolean }> {
   const r = await authed("/api/me");
   if (!r.ok) throw new Error("me_failed");
-  return (await r.json()) as { nickname: string };
+  const d = (await r.json()) as { nickname: string; admin?: boolean };
+  return { nickname: d.nickname, admin: d.admin === true };
 }
 
 export async function setNickname(nickname: string): Promise<void> {
@@ -252,6 +254,36 @@ export const DEFAULT_LAYOUT: Layout = {
     { id: "timeline", label: { ko: "타임라인", en: "Timeline" } },
   ],
 };
+
+// putLayout 실패 — 상태 코드와 서버 에러 코드(예: "demo", "forbidden")를 함께 담아
+// 호출부(스튜디오)가 안내 문구를 구분할 수 있게 한다. 401은 authed가 UnauthorizedError로 던진다.
+export class LayoutPutError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string) {
+    super(code || `put_layout_${status}`);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+// 레이아웃 발행(관리자 전용). 성공 시 조용히 반환, 실패 시 LayoutPutError를 던진다.
+export async function putLayout(layout: Layout): Promise<void> {
+  const r = await authed("/api/layout", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(layout),
+  });
+  if (!r.ok) {
+    let code = "";
+    try {
+      code = ((await r.json()) as { error?: string }).error ?? "";
+    } catch {
+      /* 본문 없는 오류 응답 — 상태 코드만으로 구분 */
+    }
+    throw new LayoutPutError(r.status, code);
+  }
+}
 
 // getLayout은 서버의 페이지 구성을 가져온다. 오류·손상 시 DEFAULT_LAYOUT을 반환해
 // 부트를 막지 않는다(회귀 0).
