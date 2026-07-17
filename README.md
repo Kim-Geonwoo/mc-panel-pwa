@@ -90,6 +90,8 @@ Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 
 | GET | `/api/perf` | Bearer | 실시간 성능 샘플 + 누적 이력(차트용) |
 | GET/POST | `/api/chat` | Bearer | 통합 피드 읽기(`since`=전방 폴링·`before`=과거 로딩) / 웹 메시지 전송(저장 즉시 `{id,ts}` 반환) |
 | GET | `/api/timeline` | Bearer | 접속 이벤트(join/leave) — 타임라인 탭용 |
+| GET | `/api/layout` | — | 서버별 페이지 구성(레이아웃 JSON). 파일 부재·손상 시 기본 레이아웃 반환 |
+| PUT | `/api/layout` | 루프백 | 레이아웃 저장(스키마 검증 후 원자적 기록) — 인터넷 노출 리스너에는 없음 |
 | GET/POST | `/api/push/config` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | 웹 푸시(VAPID) 구성 조회(키+서버가 켠 알림 종류 `PANEL_PUSH_EVENTS`)·구독(종류 선택 `topics`)·해지 — 서버 다운/복구·접속 알림. iOS는 16.4+ 홈 화면 설치 시 |
 | GET | `/healthz` | — | 루프백 전용 헬스 체크(가동 모니터링용) |
 | * | `/internal/*` | 루프백 | 봇 전용 내부 API(수집·세션 목록·회수) — 인터넷 노출 리스너에는 없음 |
