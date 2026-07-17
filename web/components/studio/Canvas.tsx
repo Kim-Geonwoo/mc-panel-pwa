@@ -126,9 +126,12 @@ export default function StudioCanvas({
 
   return (
     <div ref={hostRef} className="relative">
+      {/* 프레임의 relative: 시트·모달(absolute inset-0)의 containing block을 폰 프레임으로
+          만들어 rounded+overflow-hidden 클리핑이 absolute 자손에도 적용되게 한다(B9).
+          SelectionOutline은 프레임의 형제(hostRef 기준 absolute)라 영향이 없다. */}
       <div
         className={[
-          "flex h-[780px] w-[390px] flex-col overflow-hidden rounded-[2rem] border border-line bg-bg shadow-card",
+          "relative flex h-[780px] w-[390px] flex-col overflow-hidden rounded-[2rem] border border-line bg-bg shadow-card",
           themed.className,
         ]
           .filter(Boolean)

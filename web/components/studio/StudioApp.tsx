@@ -18,7 +18,8 @@ import {
   updateProps,
   type BlockPath,
 } from "../../lib/builder/editOps";
-import { keyedScreen } from "../../lib/builder/studioTree";
+import { countBlockType } from "../../lib/builder/layoutQuery";
+import { keyedScreen, rowId } from "../../lib/builder/studioTree";
 import { clearDraft, saveDraft } from "../../lib/builder/studioDraft";
 import {
   canRedo,
@@ -140,13 +141,32 @@ export default function StudioApp({
   }, [applyHist]);
 
   // ── 트리 편집(전부 editOps 경유) ──────────────────────────────────────────
-  const onSelect = useCallback((p: BlockPath | null) => {
-    setSelected(p);
-    if (p) setSection("block");
-  }, []);
+  // 캔버스·트리 선택. 우패널 섹션 전환은 선택이 "실제로 바뀐 경우"로 한정한다(B10)
+  // — 같은 블록 재클릭·빈 곳 클릭(해제) 시 탭/테마 섹션이 블록 섹션으로 튕기지 않는다.
+  const onSelect = useCallback(
+    (p: BlockPath | null) => {
+      const changed = (p ? rowId(p) : null) !== (selected ? rowId(selected) : null);
+      setSelected(p);
+      if (p && changed) setSection("block");
+    },
+    [selected],
+  );
+
+  // 중복 배치 가드(B8) — unique 블록이 레이아웃 어딘가(화면·탭 content·암묵 기본
+  // 매핑)에 이미 있으면 팔레트 버튼을 비활성화한다. 계수는 layoutQuery의 순수 로직.
+  const placed = useMemo(() => {
+    const s = new Set<string>();
+    for (const [type, def] of Object.entries(REGISTRY)) {
+      if (def.unique && countBlockType(draft, type) >= 1) s.add(type);
+    }
+    return s;
+  }, [draft]);
 
   const onAdd = useCallback(
     (type: string) => {
+      // 중복 배치 방어(B8) — 팔레트 비활성화를 우회한 호출도 여기서 no-op.
+      const addedDef = Object.hasOwn(REGISTRY, type) ? REGISTRY[type] : undefined;
+      if (addedDef?.unique && countBlockType(draft, type) >= 1) return;
       // 목적지: 선택이 컨테이너면 그 안(끝), 요소면 그 뒤(형제), 없으면 루트 끝.
       let parent: BlockPath = [];
       let index = screen.children?.length ?? 0;
@@ -165,7 +185,7 @@ export default function StudioApp({
       setSelected([...parent, index]);
       setSection("block");
     },
-    [applyScreen, screen, selected],
+    [applyScreen, draft, screen, selected],
   );
 
   const onMove = useCallback(
@@ -267,7 +287,7 @@ export default function StudioApp({
       />
       <div className="flex min-h-0 flex-1">
         <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-card p-3">
-          <Palette onAdd={onAdd} />
+          <Palette onAdd={onAdd} placed={placed} />
           <div className="my-3 border-t border-line" />
           <StructureTree
             screen={screen}

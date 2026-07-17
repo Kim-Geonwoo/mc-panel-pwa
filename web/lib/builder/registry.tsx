@@ -29,6 +29,10 @@ export type BlockDef = {
   propsSchema?: ZodType; // 검증 실패 → 폴백(렌더 안 함)
   keepMounted?: boolean; // TabContent 전용: 비활성 탭에서도 숨김 마운트 유지
   label: { ko: string; en: string }; // Phase 2 편집기 팔레트 표기
+  // 레이아웃 전체(화면+탭 content+기본 매핑)에 1개만 허용 — 팔레트 중복 배치 가드(B8).
+  // 중복 시 실동작이 깨지는 블록(chat-feed 이중 폴링 등)에만 지정한다. 렌더러는
+  // 이 플래그를 강제하지 않는다(발행본 관대 수용 유지) — 편집기 전용 메타.
+  unique?: boolean;
 };
 
 // text.i18n은 화이트리스트 키만 — 임의 키로 사전을 뒤지는 것을 차단한다.
@@ -48,13 +52,13 @@ export const REGISTRY: Record<string, BlockDef> = {
   spacer: { kind: "element", component: Spacer, label: { ko: "공간", en: "Spacer" } },
   text: { kind: "element", component: TextBlock, propsSchema: textProps, label: { ko: "텍스트", en: "Text" } },
   logo: { kind: "element", component: LogoBlock, propsSchema: logoProps, label: { ko: "로고", en: "Logo" } },
-  "conn-banner": { kind: "element", component: ConnBanner, label: { ko: "연결 배너", en: "Connection banner" } },
+  "conn-banner": { kind: "element", component: ConnBanner, unique: true, label: { ko: "연결 배너", en: "Connection banner" } },
   "theme-toggle": { kind: "element", component: ThemeToggleBlock, label: { ko: "테마 토글", en: "Theme toggle" } },
   "settings-button": { kind: "element", component: SettingsButton, label: { ko: "설정 버튼", en: "Settings button" } },
   "server-status": { kind: "element", component: ServerStatus, label: { ko: "서버 상태 카드", en: "Server status" } },
-  tabbar: { kind: "element", component: Tabbar, label: { ko: "탭바", en: "Tab bar" } },
-  "tab-content": { kind: "element", component: TabContent, label: { ko: "탭 콘텐츠", en: "Tab content" } },
-  "chat-feed": { kind: "element", component: ChatFeed, keepMounted: true, label: { ko: "채팅", en: "Chat feed" } },
+  tabbar: { kind: "element", component: Tabbar, unique: true, label: { ko: "탭바", en: "Tab bar" } },
+  "tab-content": { kind: "element", component: TabContent, unique: true, label: { ko: "탭 콘텐츠", en: "Tab content" } },
+  "chat-feed": { kind: "element", component: ChatFeed, keepMounted: true, unique: true, label: { ko: "채팅", en: "Chat feed" } },
   "perf-view": { kind: "element", component: PerfViewBlock, label: { ko: "성능", en: "Performance view" } },
   "timeline-view": { kind: "element", component: TimelineViewBlock, label: { ko: "타임라인", en: "Timeline view" } },
 };
