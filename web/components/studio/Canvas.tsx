@@ -5,8 +5,9 @@
 // 가로채 내부 버튼/입력의 오작동을 막고 클릭을 "블록 선택"으로 바꾼다.
 // 블록 식별은 display:contents 래퍼(data-spath)로 한다 — 박스를 만들지 않으므로
 // 실제 레이아웃(플렉스 체인)에 영향이 없고, DOM 조상 체인으로 경로를 역추적할 수 있다.
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import BlockRenderer, { blockKey } from "../../lib/builder/BlockRenderer";
+import { canvasThemeStyle } from "../../lib/builder/applyTheme";
 import { PanelProvider } from "../../lib/builder/context";
 import { REGISTRY } from "../../lib/builder/registry";
 import type { Block, Layout } from "../../lib/builder/schema";
@@ -117,18 +118,22 @@ export default function StudioCanvas({
     onSelect(sp == null ? null : sp === "" ? [] : sp.split(".").map(Number));
   };
 
-  // 드래프트 테마의 accent를 캔버스 범위에만 미리 적용한다(문서 전역 오염 방지).
-  const accent = layout.theme?.accent;
-  const style: CSSProperties | undefined =
-    accent && /^#[0-9a-fA-F]{6}$/.test(accent)
-      ? ({ "--accent": accent } as CSSProperties)
-      : undefined;
+  // 드래프트 테마를 캔버스 범위에만 미리 적용한다(문서 전역 오염 방지) — mode는
+  // 프레임 클래스(dark/light — 라이트 강제는 globals.css .light 블록), accent·radius는
+  // 스코프 CSS 변수. 기본 테마면 클래스·스타일이 모두 비어 현행 DOM과 동일(회귀 0).
+  // 프레임 자체의 rounded-[2rem]은 임의값 클래스라 radius 토큰의 영향을 받지 않는다.
+  const themed = canvasThemeStyle(layout.theme);
 
   return (
     <div ref={hostRef} className="relative">
       <div
-        className="flex h-[780px] w-[390px] flex-col overflow-hidden rounded-[2rem] border border-line bg-bg shadow-card"
-        style={style}
+        className={[
+          "flex h-[780px] w-[390px] flex-col overflow-hidden rounded-[2rem] border border-line bg-bg shadow-card",
+          themed.className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={themed.style}
         onClickCapture={editing ? onClickCapture : undefined}
         // mousedown 기본동작 차단 — 편집 모드에서 입력창 포커스·텍스트 선택을 막는다.
         onMouseDownCapture={editing ? (e) => e.preventDefault() : undefined}

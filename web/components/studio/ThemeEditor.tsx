@@ -2,7 +2,10 @@
 
 // 테마·메타 편집기 — mode(3택)·accent(컬러 피커+hex, #RRGGBB 검증)·radius(3택)·
 // meta.title을 편집한다. accent는 유효한 hex만 커밋하고, 비우면 키를 제거한다.
-import { useEffect, useState } from "react";
+// 피커는 onChange를 300ms 디바운스해 커밋한다(연속 드래그 = 히스토리 1건, 언마운트 시
+// flush). 이전의 onBlur 무조건 커밋은 피커를 열었다 취소만 해도 폴백색이 커밋되던
+// 버그(B3)라 제거했고, 현재 accent와 같은 값은 no-op으로 걸러 히스토리 오염을 막는다.
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import type { ThemeSpec } from "../../lib/builder/schema";
 
@@ -55,18 +58,57 @@ export default function ThemeEditor({
   const { t } = useI18n();
   const accent = theme.accent ?? "";
   const [hex, setHex] = useState(accent);
-  useEffect(() => setHex(accent), [accent]); // undo/외부 변경과 동기화
+  // 피커 표시색 — 로컬 상태로 즉시 반영(드래그 중 실시간), 히스토리 커밋은 디바운스.
+  const [pick, setPick] = useState(HEX_RE.test(accent) ? accent : FALLBACK_ACCENT);
+  const pickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPick = useRef<string | null>(null);
 
   const hexOk = hex === "" || HEX_RE.test(hex);
 
   // 커밋: 빈 값 → accent 제거, 유효 hex → 반영, 무효 → 미커밋(에러 표기만).
+  // 현재 값과 동일하면 no-op — 변경 없는 blur/flush가 히스토리를 오염시키지 않는다(B3).
   const commitAccent = (v: string) => {
+    if (v === accent) return;
     if (v === "") {
       const { accent: _drop, ...rest } = theme;
       onTheme(rest);
     } else if (HEX_RE.test(v)) {
       onTheme({ ...theme, accent: v });
     }
+  };
+  // 언마운트 flush·디바운스 콜백에서 최신 commitAccent를 쓰기 위한 ref(스테일 클로저 방지).
+  const commitRef = useRef(commitAccent);
+  commitRef.current = commitAccent;
+
+  // undo/외부 변경과 동기화. 외부 변경이 우선하므로 보류 중인 디바운스 커밋은 폐기한다.
+  useEffect(() => {
+    if (pickTimer.current) clearTimeout(pickTimer.current);
+    pickTimer.current = null;
+    pendingPick.current = null;
+    setHex(accent);
+    setPick(HEX_RE.test(accent) ? accent : FALLBACK_ACCENT);
+  }, [accent]);
+
+  // 언마운트 시 보류 커밋 flush — 색을 고른 직후 섹션을 전환해도 선택이 유실되지 않는다.
+  useEffect(
+    () => () => {
+      if (pickTimer.current) clearTimeout(pickTimer.current);
+      if (pendingPick.current != null) commitRef.current(pendingPick.current);
+    },
+    [],
+  );
+
+  // 피커 onChange — 표시는 즉시, 커밋은 300ms 디바운스(연속 드래그 = 히스토리 1건).
+  const onPick = (v: string) => {
+    setPick(v);
+    pendingPick.current = v;
+    if (pickTimer.current) clearTimeout(pickTimer.current);
+    pickTimer.current = setTimeout(() => {
+      pickTimer.current = null;
+      const next = pendingPick.current;
+      pendingPick.current = null;
+      if (next != null) commitRef.current(next);
+    }, 300);
   };
 
   return (
@@ -88,12 +130,11 @@ export default function ThemeEditor({
         <div className="mb-1 text-[10px] font-medium text-muted">{t("studio.theme.accent")}</div>
         <div className="flex items-center gap-1.5">
           <input
-            key={accent}
             type="color"
             aria-label={t("studio.theme.accent")}
-            defaultValue={HEX_RE.test(accent) ? accent : FALLBACK_ACCENT}
+            value={pick}
             className="h-8 w-9 shrink-0 cursor-pointer rounded-lg border border-line bg-card p-0.5"
-            onBlur={(e) => commitAccent(e.target.value)}
+            onChange={(e) => onPick(e.target.value)}
           />
           <input
             type="text"
