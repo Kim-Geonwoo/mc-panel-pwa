@@ -127,7 +127,7 @@ export default function ServerStatus() {
       <AnimatePresence>
         {tpsOpen && (
           <motion.div
-            className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6"
+            className="absolute inset-0 z-50 grid place-items-center bg-black/50 p-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

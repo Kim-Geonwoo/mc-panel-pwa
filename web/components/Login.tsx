@@ -92,9 +92,15 @@ export default function Login({ onAuthed }: { onAuthed: () => void }) {
             ref={inputRef}
             value={code}
             onChange={(e) => onChange(e.target.value)}
+            type="text"
+            name="one-time-code"
             inputMode="numeric"
             pattern="[0-9]*"
             autoComplete="one-time-code"
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             maxLength={6}
             autoFocus
             aria-label={t("login.codeAria")}
