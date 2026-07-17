@@ -12,9 +12,10 @@
 > A personal project, built and maintained as a hobby. Issues and PRs are welcome, but support is best-effort.
 
 An **authenticated, installable PWA dashboard for a Minecraft server** — live
-player status, real-time performance charts, and a three-way (game ↔ Discord ↔
-web) chat bridge. A statically-exported Next.js front end served by a single,
-dependency-free Go binary.
+player status, real-time performance charts, a three-way (game ↔ Discord ↔ web)
+chat bridge, and **server-driven UI (SDUI)** page composition: a single layout
+JSON customizes each server's panel without a rebuild. A statically-exported
+Next.js front end served by a single, dependency-free Go binary.
 
 > **Live demo:** <https://mc-panel-demo.geonwoo.dev> — login code `000000`.
 >
@@ -32,6 +33,10 @@ dependency-free Go binary.
   with an in-memory rolling history.
 - **Three-way chat** — game, Discord, and web messages in one feed; web users
   pick a nickname and post back into the game.
+- **Page composition (SDUI)** — a server-provided layout JSON (`GET /api/layout`)
+  changes tab set/order/labels, title, theme, and screen block placement without
+  a rebuild. A whitelist block registry and a recursive renderer stay safe on
+  unknown types and corrupt input (fallbacks, partial-failure isolation).
 - **PWA** — installable, offline app shell via a service worker; light/dark.
 - **Hardened** — loopback-bound API behind a tunnel, server-side sessions,
   per-IP/-session rate limiting, input sanitization, strict security headers.
@@ -163,7 +168,8 @@ Roadmap, with status per item:
 
 - [ ] Retire the legacy file importer once the private Discord bot fully migrates to `POST /internal/ingest`
 - [ ] Build-time locale for PWA metadata (document title, manifest, push fallback text)
-- [ ] Unit tests for the web UI (the Go API is at ~82% statement coverage)
+- [x] Unit tests for the web UI (vitest — schema, renderer, tab planning; the Go API is at ~82% statement coverage)
+- [ ] Drag-and-drop visual editor — assemble blocks on a canvas from the registry palette, preview, publish
 - [ ] README screenshots
 
 ## License
