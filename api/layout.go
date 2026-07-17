@@ -178,13 +178,11 @@ func (s *server) handleLayoutPublish(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// 감사 로그 — 누가(닉네임, 없으면 sid 앞 8자) 몇 바이트를 발행했는지 남긴다.
+	// 감사 로그 — 누가(닉네임) 몇 바이트를 발행했는지 남긴다. sid는 Bearer 자격증명이라
+	// 일부라도 로그에 남기지 않는다(CodeQL go/clear-text-logging).
 	who := sess.Nickname
 	if who == "" {
-		who = sid
-		if len(who) > 8 {
-			who = who[:8]
-		}
+		who = "(no-nick)"
 	}
 	log.Printf("layout published by %s (%d bytes)", who, n)
 }
