@@ -19,7 +19,14 @@ import {
   type BlockPath,
 } from "../../lib/builder/editOps";
 import { countBlockType } from "../../lib/builder/layoutQuery";
-import { keyedScreen, rowId } from "../../lib/builder/studioTree";
+import {
+  getScopeRoot,
+  spathId,
+  writeScopeRoot,
+  type EditScope,
+  type ScopedPath,
+} from "../../lib/builder/studioScope";
+import { ghostTabContent, keyedBlocks, keyedScreen, renameProps } from "../../lib/builder/studioTree";
 import { clearDraft, saveDraft } from "../../lib/builder/studioDraft";
 import {
   canRedo,
@@ -61,7 +68,9 @@ export default function StudioApp({
 }) {
   const { t } = useI18n();
   const [hist, setHist] = useState<StudioHistory>(() => initHistory(initial));
-  const [selected, setSelected] = useState<BlockPath | null>(null);
+  // 선택은 스코프 경로(ScopedPath) — 화면 트리 또는 탭 콘텐츠 안의 위치.
+  // 캔버스 탭 콘텐츠 선택(T2.3)도 이 모델을 그대로 소비한다.
+  const [selected, setSelected] = useState<ScopedPath | null>(null);
   const [editing, setEditing] = useState(true);
   const [section, setSection] = useState<Section>("block");
   const [pub, setPub] = useState<PubState>({ state: "idle" });
@@ -81,12 +90,25 @@ export default function StudioApp({
     setHist((h) => pushHistory(h, next));
   }, []);
 
-  const applyScreen = useCallback(
-    (next: Block) => {
-      if (next === screen) return; // editOps의 no-op(무효 연산) — 히스토리 오염 방지
-      apply({ ...draft, screen: next });
+  // 탭 목록(트리 섹션·유령 판정·물질화 공용) — 드래프트에 없으면 기본 탭.
+  const tabs: TabSpec[] = useMemo(() => draft.tabs ?? DEFAULT_LAYOUT.tabs ?? [], [draft.tabs]);
+
+  // ── 스코프 편집 공통 — 모든 트리 편집은 getScopeRoot → editOps → writeScopeRoot
+  // 한 경로만 쓴다(화면·탭 콘텐츠 동형). ────────────────────────────────────────
+  const rootOf = useCallback(
+    (scope: EditScope) => getScopeRoot(draft, scope, fallbackScreen),
+    [draft, fallbackScreen],
+  );
+
+  // prev는 호출부가 이미 얻어 editOps에 넘긴 스코프 루트. editOps가 no-op(원본
+  // 반환)이면 히스토리에 넣지 않는다 — 탭 스코프는 getScopeRoot가 호출마다 새
+  // 가상 루트를 만들므로 여기서 재조회해 비교하면 no-op을 놓친다.
+  const applyScope = useCallback(
+    (scope: EditScope, prev: Block, next: Block) => {
+      if (next === prev) return;
+      apply(writeScopeRoot(draft, scope, next));
     },
-    [apply, draft, screen],
+    [apply, draft],
   );
 
   // undo/redo 공통 경로. 히스토리 이동도 편집이다 — "발행됨" 표시를 무효화하고(B5)
@@ -116,10 +138,20 @@ export default function StudioApp({
     return () => clearTimeout(id);
   }, [draft]);
 
-  // undo/redo·삭제로 선택 경로가 무효해지면 해제한다.
+  // undo/redo·삭제·탭 삭제로 선택 스코프/경로가 무효해지면 해제한다. 콘텐츠가
+  // 비어 유령(기본 매핑 폴백) 상태로 되돌아간 탭의 선택도 해제한다 — 유령 탭은
+  // 트리에서 선택 대상이 아니므로 stale 선택을 남기지 않는다.
   useEffect(() => {
-    if (selected && selected.length > 0 && !getAt(screen, selected)) setSelected(null);
-  }, [screen, selected]);
+    if (!selected) return;
+    const root = getScopeRoot(draft, selected.scope, fallbackScreen);
+    let stale = !root || (selected.path.length > 0 && !getAt(root, selected.path));
+    if (!stale && selected.scope.kind === "tab") {
+      const tabId = selected.scope.tabId;
+      const tb = tabs.find((x) => x.id === tabId);
+      stale = !tb || ghostTabContent(tb) !== null;
+    }
+    if (stale) setSelected(null);
+  }, [draft, fallbackScreen, selected, tabs]);
 
   // 단축키: Ctrl/Cmd+Z = undo, +Shift = redo(또는 Ctrl+Y). 입력 필드에서는 무시.
   useEffect(() => {
@@ -144,10 +176,10 @@ export default function StudioApp({
   // 캔버스·트리 선택. 우패널 섹션 전환은 선택이 "실제로 바뀐 경우"로 한정한다(B10)
   // — 같은 블록 재클릭·빈 곳 클릭(해제) 시 탭/테마 섹션이 블록 섹션으로 튕기지 않는다.
   const onSelect = useCallback(
-    (p: BlockPath | null) => {
-      const changed = (p ? rowId(p) : null) !== (selected ? rowId(selected) : null);
-      setSelected(p);
-      if (p && changed) setSection("block");
+    (sp: ScopedPath | null) => {
+      const changed = (sp ? spathId(sp) : null) !== (selected ? spathId(selected) : null);
+      setSelected(sp);
+      if (sp && changed) setSection("block");
     },
     [selected],
   );
@@ -167,52 +199,97 @@ export default function StudioApp({
       // 중복 배치 방어(B8) — 팔레트 비활성화를 우회한 호출도 여기서 no-op.
       const addedDef = Object.hasOwn(REGISTRY, type) ? REGISTRY[type] : undefined;
       if (addedDef?.unique && countBlockType(draft, type) >= 1) return;
-      // 목적지: 선택이 컨테이너면 그 안(끝), 요소면 그 뒤(형제), 없으면 루트 끝.
+      // 목적지 스코프: 선택이 있으면 그 스코프, 없으면 화면 루트. 유령 탭은 트리에서
+      // 선택 불가라 여기 오지 않고, 탭 부재(rootOf null)는 방어적으로 no-op.
+      const sp: ScopedPath = selected ?? { scope: { kind: "screen" }, path: [] };
+      const root = rootOf(sp.scope);
+      if (!root) return;
+      // 목적지: 선택이 루트/컨테이너면 그 안(끝), 요소면 그 뒤(형제), 무효면 루트 끝.
       let parent: BlockPath = [];
-      let index = screen.children?.length ?? 0;
-      const sel = selected ? getAt(screen, selected) : null;
-      if (selected && sel) {
+      let index = root.children?.length ?? 0;
+      const sel = getAt(root, sp.path);
+      if (sel && sp.path.length > 0) {
         const def = Object.hasOwn(REGISTRY, sel.type) ? REGISTRY[sel.type] : undefined;
         if (def?.kind === "layout") {
-          parent = selected;
+          parent = sp.path;
           index = sel.children?.length ?? 0;
-        } else if (selected.length > 0) {
-          parent = selected.slice(0, -1);
-          index = selected[selected.length - 1] + 1;
+        } else {
+          parent = sp.path.slice(0, -1);
+          index = sp.path[sp.path.length - 1] + 1;
         }
       }
-      applyScreen(insertAt(screen, parent, index, newBlock(type)));
-      setSelected([...parent, index]);
+      applyScope(sp.scope, root, insertAt(root, parent, index, newBlock(type)));
+      setSelected({ scope: sp.scope, path: [...parent, index] });
       setSection("block");
     },
-    [applyScreen, draft, screen, selected],
+    [applyScope, draft, rootOf, selected],
   );
 
   const onMove = useCallback(
-    (from: BlockPath, toParent: BlockPath, toIndex: number) => {
-      applyScreen(moveNode(screen, from, toParent, toIndex));
+    (scope: EditScope, from: BlockPath, toParent: BlockPath, toIndex: number) => {
+      const root = rootOf(scope);
+      if (!root) return;
+      applyScope(scope, root, moveNode(root, from, toParent, toIndex));
       setSelected(null); // 이동 후 경로가 재계산되므로 선택은 해제한다
     },
-    [applyScreen, screen],
+    [applyScope, rootOf],
   );
 
+  // 탭의 마지막 블록을 지우면 content=[]가 되고, 렌더는 기본 매핑으로 폴백하며
+  // 트리는 유령 섹션으로 되돌아간다(ghostTabContent — 표기와 렌더 일치).
   const onRemove = useCallback(
-    (p: BlockPath) => {
-      applyScreen(removeAt(screen, p));
+    (sp: ScopedPath) => {
+      const root = rootOf(sp.scope);
+      if (!root) return;
+      applyScope(sp.scope, root, removeAt(root, sp.path));
       setSelected(null);
     },
-    [applyScreen, screen],
+    [applyScope, rootOf],
   );
 
   const onUpdateProps = useCallback(
-    (p: BlockPath, props: Record<string, unknown>) => {
-      applyScreen(updateProps(screen, p, props));
+    (sp: ScopedPath, props: Record<string, unknown>) => {
+      const root = rootOf(sp.scope);
+      if (!root) return;
+      applyScope(sp.scope, root, updateProps(root, sp.path, props));
     },
-    [applyScreen, screen],
+    [applyScope, rootOf],
+  );
+
+  // 더블클릭 이름변경 — 표시명 메타(props.name)만 바꾼다. renameProps가 변화 없음을
+  // null로 알려 no-op 처리하므로 히스토리에는 실제 변경만 1항목 쌓인다. key 보존은
+  // renameProps(전체 키 복사)와 updateProps 양쪽이 보장한다.
+  const onRename = useCallback(
+    (sp: ScopedPath, name: string) => {
+      const root = rootOf(sp.scope);
+      if (!root) return;
+      const node = getAt(root, sp.path);
+      if (!node) return;
+      const props = renameProps(node.props, name);
+      if (!props) return;
+      applyScope(sp.scope, root, updateProps(root, sp.path, props));
+    },
+    [applyScope, rootOf],
+  );
+
+  // 유령 탭 물질화 — "편집 시작" 클릭 시에만 기본 매핑을 실제 content로 복사한다
+  // (발행본 변화는 항상 명시 조작의 결과 — 암묵 물질화 금지). draft.tabs가 없으면
+  // 기본 탭 목록째로 드래프트에 올린다(이 역시 같은 클릭의 명시적 결과다).
+  const onMaterializeTab = useCallback(
+    (tabId: string) => {
+      const i = tabs.findIndex((tb) => tb.id === tabId);
+      if (i < 0) return;
+      const ghost = ghostTabContent(tabs[i]);
+      if (!ghost) return;
+      const nextTabs = [...tabs];
+      nextTabs[i] = { ...tabs[i], content: keyedBlocks(ghost) };
+      apply({ ...draft, tabs: nextTabs });
+      setSelected({ scope: { kind: "tab", tabId }, path: [] });
+    },
+    [apply, draft, tabs],
   );
 
   // ── 탭·테마·메타 ─────────────────────────────────────────────────────────
-  const tabs: TabSpec[] = draft.tabs ?? DEFAULT_LAYOUT.tabs ?? [];
   const onTabsChange = useCallback((next: TabSpec[]) => apply({ ...draft, tabs: next }), [apply, draft]);
   const onTheme = useCallback(
     (next: ThemeSpec) => apply({ ...draft, theme: next }),
@@ -269,6 +346,16 @@ export default function StudioApp({
     { v: "theme", label: t("studio.section.theme") },
   ];
 
+  // 인스펙터는 스코프 무지 컴포넌트(T5.1에서 재작성 예정) — 선택 스코프의 루트를
+  // screen 자리에 넣어 그대로 재사용한다. 탭 루트 선택([] 경로)은 편집 대상 노드가
+  // 아니므로(가상 tab-root 노출 방지) 빈 상태로 보낸다. key(스코프 포함 id)로
+  // 스코프 간 재마운트를 강제해 미커밋 입력이 다른 선택으로 넘어가지 않게 한다.
+  const inspRoot = (selected ? rootOf(selected.scope) : null) ?? screen;
+  const inspPath =
+    selected && !(selected.scope.kind === "tab" && selected.path.length === 0)
+      ? selected.path
+      : null;
+
   return (
     <div className="flex h-screen flex-col bg-bg text-fg">
       <TopBar
@@ -291,19 +378,25 @@ export default function StudioApp({
           <div className="my-3 border-t border-line" />
           <StructureTree
             screen={screen}
+            tabs={tabs}
             selected={selected}
             onSelect={onSelect}
             onMove={onMove}
             onRemove={onRemove}
+            onRename={onRename}
+            onMaterialize={onMaterializeTab}
           />
         </aside>
         <main className="flex min-w-0 flex-1 items-start justify-center overflow-auto p-6">
+          {/* 캔버스는 아직 화면 스코프 전용(BlockPath 인터페이스 유지) — 탭 스코프
+              선택은 표시선 없이 트리·인스펙터에만 나타난다. 탭 콘텐츠의 캔버스
+              선택·프리뷰 탭 제어는 T2.3에서 배선한다. */}
           <StudioCanvas
             layout={draft}
             screen={screen}
             editing={editing}
-            selected={selected}
-            onSelect={onSelect}
+            selected={selected?.scope.kind === "screen" ? selected.path : null}
+            onSelect={(p) => onSelect(p ? { scope: { kind: "screen" }, path: p } : null)}
             onLogout={onNeedLogin}
           />
         </main>
@@ -327,10 +420,15 @@ export default function StudioApp({
           </div>
           {section === "block" && (
             <Inspector
-              screen={screen}
-              selected={selected}
-              onUpdateProps={onUpdateProps}
-              onRemove={onRemove}
+              key={selected ? spathId(selected) : "none"}
+              screen={inspRoot}
+              selected={inspPath}
+              onUpdateProps={(p, props) => {
+                if (selected) onUpdateProps({ scope: selected.scope, path: p }, props);
+              }}
+              onRemove={(p) => {
+                if (selected) onRemove({ scope: selected.scope, path: p });
+              }}
             />
           )}
           {section === "tabs" && <TabsEditor tabs={tabs} onChange={onTabsChange} />}
