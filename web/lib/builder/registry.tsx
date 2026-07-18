@@ -1,6 +1,6 @@
 // 블록 레지스트리 — 렌더 가능한 타입의 화이트리스트(단일 소스). 여기 없는 타입은
 // BlockRenderer가 폴백 처리한다(스펙 §3). 항목 추가는 additive-only.
-import type { FC, ReactNode } from "react";
+import type { CSSProperties, FC, ReactNode } from "react";
 import { z, type ZodType } from "zod";
 import type { Block } from "./schema";
 import {
@@ -21,7 +21,23 @@ import SettingsButton from "./blocks/SettingsButton";
 import Tabbar from "./blocks/Tabbar";
 import TabContent from "./blocks/TabContent";
 
-export type BlockComponentProps = { node: Block; children?: ReactNode };
+// styleClassName/styleInline(T4.2): BlockRenderer가 resolveStyle(node.props)를 중앙에서
+// 한 번 해석해 내려주는 스타일 토큰 산출물. 각 블록은 자기 "루트 요소"에
+// className={cx(BASE, styleClassName)} style={styleInline}로 병합한다 — 래퍼 div는
+// flex 체인 파괴·캔버스 display:contents 문제로, cloneElement는 취약성으로 기각(계획 T4.2).
+export type BlockComponentProps = {
+  node: Block;
+  children?: ReactNode;
+  styleClassName?: string;
+  styleInline?: CSSProperties;
+};
+
+// 블록 기본 클래스 뒤에 사용자 스타일 클래스를 병합한다(뒤 = 사용자 우선, 계획 T4.2).
+// extra 부재·빈 문자열이면 base를 문자 그대로 반환한다 — style 미지정 시 기존 DOM
+// 클래스와 완전 동일해야 하는 회귀 0 요구(메인 패널)를 지키기 위한 불변식이다.
+export function cx(base: string, extra?: string): string {
+  return extra ? `${base} ${extra}` : base;
+}
 
 export type BlockDef = {
   kind: "layout" | "element"; // layout=children 재귀, element=leaf
@@ -35,15 +51,23 @@ export type BlockDef = {
   unique?: boolean;
 };
 
+// props.style은 스타일 토큰 모듈(styleProps.ts)이 전담 검증한다 — 여기서 StyleSchema로
+// 검증하면 무효 style이 propsSchema 실패=블록 폴백(렌더 생략)으로 번진다. 규칙은
+// "무효 style은 스타일만 무시, 블록은 생존"이므로 propsSchema에서는 값을 묻지 않고
+// 통과만 시킨다(z.unknown). z.object 기본 strip이 미지 키를 이미 관용하지만, 훗날
+// .strict() 전환에도 style이 검증 실패 사유가 되지 않도록 명시해 둔다(계획 T4.2).
+const styleProp = { style: z.unknown().optional() };
+
 // text.i18n은 화이트리스트 키만 — 임의 키로 사전을 뒤지는 것을 차단한다.
 const textProps = z.object({
   i18n: z.enum(["panel.title"]).optional(),
   ko: z.string().max(200).optional(),
   en: z.string().max(200).optional(),
   variant: z.enum(["title", "body", "caption"]).optional(),
+  ...styleProp,
 });
 
-const logoProps = z.object({ size: z.number().int().min(16).max(128).optional() });
+const logoProps = z.object({ size: z.number().int().min(16).max(128).optional(), ...styleProp });
 
 export const REGISTRY: Record<string, BlockDef> = {
   vstack: { kind: "layout", component: VStack, label: { ko: "세로 스택", en: "VStack" } },

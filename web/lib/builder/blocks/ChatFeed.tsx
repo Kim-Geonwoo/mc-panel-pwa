@@ -9,6 +9,7 @@ import { ChatMessage, fetchChat, fetchChatBefore, sendChat, UnauthorizedError } 
 import { useI18n } from "../../i18n";
 import { usePanel } from "../context";
 import Avatar from "../../../components/Avatar";
+import { cx, type BlockComponentProps } from "../registry";
 
 const CHAT_MS = 2000;
 
@@ -38,7 +39,7 @@ function mergeMsgs(prev: ChatMessage[], incoming: ChatMessage[], capTail = true)
   return capTail ? merged.slice(-3000) : merged;
 }
 
-export default function ChatFeed() {
+export default function ChatFeed({ styleClassName, styleInline }: BlockComponentProps) {
   const { t } = useI18n();
   const { onLogout, tab, tabRef, nick, unread, setUnread, setConnLost } = usePanel();
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
@@ -211,7 +212,15 @@ export default function ChatFeed() {
   return (
     <>
       {/* 채팅은 탭을 떠나도 마운트 유지(hidden) — 스크롤 위치·입력 중 텍스트 보존 */}
-      <div className={["relative flex min-h-0 flex-1 flex-col", tab === "chat" ? "" : "hidden"].join(" ")}>
+      {/* 스타일 적용 지점(고정): 최상단 컨테이너 = 주 시각 요소. 기존 기본 클래스
+          문자열(hidden 토글 포함)은 그대로 두고 그 뒤에 사용자 클래스만 병합한다. */}
+      <div
+        className={cx(
+          ["relative flex min-h-0 flex-1 flex-col", tab === "chat" ? "" : "hidden"].join(" "),
+          styleClassName,
+        )}
+        style={styleInline}
+      >
       {/* 채팅 피드 */}
       <div
         ref={feedRef}

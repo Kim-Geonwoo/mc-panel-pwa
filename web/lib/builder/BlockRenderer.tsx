@@ -5,6 +5,7 @@
 // 해당 블록만 폴백/생략하고 나머지 트리는 정상 렌더한다(부분 실패 격리).
 import { Component, type ReactNode } from "react";
 import { REGISTRY } from "./registry";
+import { resolveStyle } from "./styleProps";
 import type { Block } from "./schema";
 
 // 블록 하나의 렌더 오류를 격리하는 경계 — 죽은 블록은 조용히 사라진다.
@@ -50,10 +51,17 @@ export default function BlockRenderer({ node }: { node: Block }) {
     def.kind === "layout"
       ? node.children?.map((c, i) => <BlockRenderer key={blockKey(c, i)} node={c} />)
       : undefined;
+  // 스타일 토큰(T4.2) — 중앙에서 한 번 해석해 블록 루트에 병합하도록 내려준다.
+  // 무효 style은 resolveStyle이 null을 반환해 스타일만 무시된다(절대 throw 안 함) —
+  // 위 propsSchema 폴백과는 무관한 별개 격리다. hex 전용 style이면 className이 ""일 수
+  // 있어 undefined로 정규화한다(cx가 base를 문자 그대로 유지하도록).
+  const sty = resolveStyle(node.props);
   const C = def.component;
   return (
     <BlockBoundary>
-      <C node={node}>{kids}</C>
+      <C node={node} styleClassName={sty?.className || undefined} styleInline={sty?.style}>
+        {kids}
+      </C>
     </BlockBoundary>
   );
 }

@@ -7,18 +7,25 @@ import { AnimatePresence } from "framer-motion";
 import { useI18n } from "../../i18n";
 import { usePanel } from "../context";
 import SettingsSheet from "../../../components/SettingsSheet";
+import { cx, type BlockComponentProps } from "../registry";
 
-export default function SettingsButton() {
+export default function SettingsButton({ styleClassName, styleInline }: BlockComponentProps) {
   const { t } = useI18n();
   const { nick, setNick, tabPrefs, updateTabPrefs, onLogout } = usePanel();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <>
+      {/* 스타일 적용 지점(고정): 기어 버튼 = 주 시각 요소. 다중 루트 블록이므로
+          설정 시트에는 적용하지 않는다(계획 T4.2). */}
       <button
         onClick={() => setSettingsOpen(true)}
         aria-label={t("settings.title")}
-        className="grid h-9 w-9 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:text-fg active:scale-95"
+        className={cx(
+          "grid h-9 w-9 place-items-center rounded-full border border-line bg-card text-muted transition-colors hover:text-fg active:scale-95",
+          styleClassName,
+        )}
+        style={styleInline}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
