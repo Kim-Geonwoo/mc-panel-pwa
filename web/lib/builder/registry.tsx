@@ -20,6 +20,10 @@ import ServerStatus from "./blocks/ServerStatus";
 import SettingsButton from "./blocks/SettingsButton";
 import Tabbar from "./blocks/Tabbar";
 import TabContent from "./blocks/TabContent";
+import {
+  SETTINGS_SECTION_IDS,
+  type SettingsSectionId,
+} from "../../components/SettingsSheet";
 
 // styleClassName/styleInline(T4.2): BlockRenderer가 resolveStyle(node.props)를 중앙에서
 // 한 번 해석해 내려주는 스타일 토큰 산출물. 각 블록은 자기 "루트 요소"에
@@ -125,6 +129,43 @@ const logoFields: FieldSpec[] = [
   { kind: "number", prop: "size", label: { ko: "크기(px)", en: "Size (px)" }, min: 16, max: 128, fallback: 44 },
 ];
 
+// settings-button: 시트 섹션 부분집합(계획 T5.2, additive — 부재=전체 표시).
+// 규칙 예외: 무효 sections는 .catch(undefined)로 "무시"(=부재 취급)한다. 다른 블록처럼
+// propsSchema 실패=블록 폴백을 적용하면 무효값 하나로 설정 진입점(알림·닉네임·로그아웃)
+// 자체가 화면에서 사라지는 사고가 나기 때문 — 이 블록만 값 오류를 부재로 강등해 버튼을
+// 살린다. 원소 단위 관대 해석(유효 id만 채택)은 SettingsButton 컴포넌트가 맡는다.
+const settingsButtonProps = z.object({
+  sections: z.array(z.enum(SETTINGS_SECTION_IDS)).optional().catch(undefined),
+  ...styleProp,
+});
+
+// 섹션 라벨 — 시트의 섹션 제목(settings.*Title·common.logout)과 같은 문구.
+// Record가 id 전수 커버를 강제하므로 SettingsSheet 튜플에 id가 늘면 tsc가 여기를 잡는다.
+const SETTINGS_SECTION_LABEL: Record<SettingsSectionId, I18nPair> = {
+  push: { ko: "알림", en: "Notifications" },
+  tabs: { ko: "탭 표시", en: "Tab visibility" },
+  lang: { ko: "언어", en: "Language" },
+  nick: { ko: "닉네임 변경", en: "Change nickname" },
+  logout: { ko: "로그아웃", en: "Log out" },
+};
+
+// settings-button 폼 메타 — 섹션 "포함 여부"만 편집한다(순서 편집은 후속 로드맵 B).
+// 전부 해제 = 키 제거 = 부재 = 전체 표시(multiEnum 규약 유지 — T5.1에서 넘긴 결정):
+// 빈 선택 상태는 두지 않는다. 섹션이 0개인 시트는 무의미하고, "전부 끄기"는 시트를
+// 화면에서 빼는 것 = settings-button 블록 삭제로 이미 표현 가능하기 때문.
+// 라벨의 Shift+클릭 안내는 T3.1 프리뷰(캔버스에서 실제 시트 열림)로의 편집 확인 힌트.
+const settingsButtonFields: FieldSpec[] = [
+  {
+    kind: "multiEnum",
+    prop: "sections",
+    label: {
+      ko: "표시할 섹션 — 캔버스에서 Shift+클릭으로 확인",
+      en: "Sections to show — Shift+click on canvas to preview",
+    },
+    options: SETTINGS_SECTION_IDS.map((v) => ({ v, label: SETTINGS_SECTION_LABEL[v] })),
+  },
+];
+
 export const REGISTRY: Record<string, BlockDef> = {
   vstack: {
     kind: "layout",
@@ -208,11 +249,13 @@ export const REGISTRY: Record<string, BlockDef> = {
   "settings-button": {
     kind: "element",
     component: SettingsButton,
+    propsSchema: settingsButtonProps,
     label: { ko: "설정 버튼", en: "Settings button" },
     description: {
       ko: "설정 시트를 여는 버튼입니다. 알림·탭·언어·닉네임·로그아웃 설정을 담습니다.",
       en: "A button that opens the settings sheet: notifications, tabs, language, nickname, and logout.",
     },
+    fields: settingsButtonFields,
   },
   "server-status": {
     kind: "element",

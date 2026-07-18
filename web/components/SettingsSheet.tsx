@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   fetchPushConfig,
@@ -11,12 +11,19 @@ import {
 } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 
-// 설정 바텀시트 — 알림·탭 표시·닉네임 변경·로그아웃을 한곳에 모은다.
+// 설정 바텀시트 — 알림·탭 표시·언어·닉네임 변경·로그아웃을 한곳에 모은다.
 // ProfileSheet와 동일한 오버레이 패턴(모바일 하단 시트 / sm+ 중앙 카드).
 // 알림 구성은 서버가 권위: 어떤 종류를 제공하는지는 fetchPushConfig가 알려주고,
 // 사용자가 고른 종류(topics)는 서버에 저장하되 mc_sv_panel_push_topics로 UI만 미러.
+// sections props(계획 T5.2)로 표시할 섹션 부분집합을 고를 수 있다 — 부재 시 전체(현행).
 
 const PUSH_TOPICS_KEY = "mc_sv_panel_push_topics";
+
+// 시트 섹션 id — 현행 표시 순서 그대로의 튜플(단일 소스). settings-button 블록의
+// props.sections(계획 T5.2)가 이 부분집합으로 노출 구성을 고르고, registry의
+// propsSchema(z.enum)·인스펙터 폼 메타(multiEnum options)도 여기서 파생된다.
+export const SETTINGS_SECTION_IDS = ["push", "tabs", "lang", "nick", "logout"] as const;
+export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 
 // events에 담겨 오는 종류 코드 → 표시 라벨 i18n 키. events에 있는 것만 렌더한다.
 const KIND_LABEL: Record<string, string> = {
@@ -37,6 +44,7 @@ export default function SettingsSheet({
   onTabPrefs,
   onLogout,
   onClose,
+  sections,
 }: {
   nick: string;
   onNickChanged: (n: string) => void;
@@ -44,6 +52,9 @@ export default function SettingsSheet({
   onTabPrefs: (p: { perf: boolean; timeline: boolean }) => void;
   onLogout: () => void;
   onClose: () => void;
+  // 표시할 섹션 부분집합(계획 T5.2, additive). 부재 = 전체를 현행 순서로 — 이때의
+  // 렌더 출력은 sections 도입 이전과 문자 그대로 동일해야 한다(메인 패널 회귀 0).
+  sections?: readonly SettingsSectionId[];
 }) {
   const { lang, setLang, t } = useI18n();
 
@@ -178,6 +189,180 @@ export default function SettingsSheet({
   const pushReady = config !== null;
   const pushOffered = pushSupported && pushReady && config.events.length > 0;
 
+  // 표시할 섹션 정규화 — 아는 id만 남기고(신뢰불가 레이아웃 JSON 방어) 중복은 첫 등장만
+  // 유지한다(1회 렌더). 결과가 비면(부재·빈 배열·전부 무효) 전체를 현행 순서로 보인다:
+  // "빈 선택" 상태는 규약상 두지 않는다 — 섹션을 전부 끈 시트는 무의미하므로 "전부
+  // 끄기"는 settings-button 블록 삭제로 표현한다(계획 T5.2 결정, 빈 선택=키 제거=부재).
+  const shown: readonly SettingsSectionId[] = (() => {
+    const seen: SettingsSectionId[] = [];
+    for (const id of sections ?? []) {
+      if ((SETTINGS_SECTION_IDS as readonly string[]).includes(id) && !seen.includes(id)) {
+        seen.push(id);
+      }
+    }
+    return seen.length ? seen : SETTINGS_SECTION_IDS;
+  })();
+
+  // 섹션 id → JSX 맵 — 각 섹션의 JSX 원문·클래스는 sections 도입 전과 동일하게 유지한다.
+  // 상태·이펙트(알림 fetch 등)는 위에서 무조건 실행된다: 훅 순서가 섹션 구성에 흔들리지
+  // 않도록 렌더만 고르는 설계다. key는 map 렌더용 React key(DOM 출력 무영향).
+  const sectionViews: Record<SettingsSectionId, ReactNode> = {
+    // ① 알림
+    push: (
+      <section key="push" className="rounded-2xl border border-line bg-card2 p-4">
+        <h3 className="text-sm font-semibold text-fg">{t("settings.pushTitle")}</h3>
+        {!pushSupported ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushUnsupported")}</p>
+        ) : !pushReady ? (
+          <div className="mt-2 space-y-2.5">
+            <div className="h-9 w-full rounded-xl bg-line motion-safe:animate-pulse" />
+            <div className="h-6 w-2/3 rounded bg-line motion-safe:animate-pulse" />
+            <div className="h-6 w-1/2 rounded bg-line motion-safe:animate-pulse" />
+          </div>
+        ) : !pushOffered ? (
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushNotOffered")}</p>
+        ) : (
+          <>
+            <div className="mt-2 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-fg">{t("settings.pushLabel")}</div>
+                <div className="text-xs text-muted">
+                  {subscribed ? t("settings.pushSubscribed") : t("settings.pushOff")}
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={subscribed}
+                aria-label={t("settings.pushToggleAria")}
+                onClick={toggleMaster}
+                disabled={pushBusy}
+                className={[
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+                  subscribed ? "bg-accent" : "bg-line",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "inline-block h-5 w-5 transform rounded-full bg-card shadow-card transition-transform",
+                    subscribed ? "translate-x-5" : "translate-x-0.5",
+                  ].join(" ")}
+                />
+              </button>
+            </div>
+            <div className="mt-2 space-y-0.5">
+              {config.events
+                .filter((ev) => KIND_LABEL[ev])
+                .map((ev) => (
+                  <CheckRow
+                    key={ev}
+                    checked={topics.includes(ev)}
+                    onChange={() => toggleKind(ev)}
+                    label={t(KIND_LABEL[ev])}
+                  />
+                ))}
+            </div>
+          </>
+        )}
+      </section>
+    ),
+    // ② 탭 표시
+    tabs: (
+      <section key="tabs" className="rounded-2xl border border-line bg-card2 p-4">
+        <h3 className="text-sm font-semibold text-fg">{t("settings.tabsTitle")}</h3>
+        <div className="mt-1 space-y-0.5">
+          <CheckRow
+            checked={tabPrefs.perf}
+            onChange={() => onTabPrefs({ ...tabPrefs, perf: !tabPrefs.perf })}
+            label={t("settings.tabsPerf")}
+          />
+          <CheckRow
+            checked={tabPrefs.timeline}
+            onChange={() => onTabPrefs({ ...tabPrefs, timeline: !tabPrefs.timeline })}
+            label={t("settings.tabsTimeline")}
+          />
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted">{t("settings.tabsNote")}</p>
+      </section>
+    ),
+    // ③ 언어 — 테마 토글과 같은 표시 계열 설정
+    lang: (
+      <section key="lang" className="rounded-2xl border border-line bg-card2 p-4">
+        <h3 className="text-sm font-semibold text-fg">{t("settings.langTitle")}</h3>
+        <div className="mt-2 flex gap-1 rounded-xl bg-card p-1">
+          {(["ko", "en"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLang(l)}
+              aria-pressed={lang === l}
+              className={[
+                "min-h-[40px] flex-1 rounded-lg text-sm font-medium transition-colors",
+                lang === l ? "bg-accent text-accent-fg shadow-card" : "text-muted hover:text-fg",
+              ].join(" ")}
+            >
+              {l === "ko" ? "한국어" : "English"}
+            </button>
+          ))}
+        </div>
+      </section>
+    ),
+    // ④ 닉네임 변경
+    nick: (
+      <section key="nick" className="rounded-2xl border border-line bg-card2 p-4">
+        <h3 className="text-sm font-semibold text-fg">{t("settings.nickTitle")}</h3>
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            value={nickInput}
+            onChange={(e) => {
+              setNickInput(e.target.value);
+              setNickErr(null);
+              setNickOk(false);
+            }}
+            onKeyDown={(e) => {
+              // 한글 IME 조합 확정 Enter(keyCode 229)는 무시 — 마지막 글자 유실·이중 제출 방지
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") saveNick();
+            }}
+            maxLength={16}
+            aria-label={t("settings.nickAria")}
+            placeholder={t("settings.nickPlaceholder")}
+            className="min-w-0 flex-1 rounded-xl border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={saveNick}
+            disabled={!nickValid || nickBusy || trimmed === nick}
+            className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-fg transition active:scale-[0.99] disabled:opacity-40"
+          >
+            {nickBusy ? t("settings.nickSaving") : t("common.save")}
+          </button>
+        </div>
+        {nickErr && (
+          <div className="mt-1.5 text-xs text-danger" role="alert">
+            {nickErr}
+          </div>
+        )}
+        {nickOk && <div className="mt-1.5 text-xs text-accent">{t("settings.nickChanged")}</div>}
+      </section>
+    ),
+    // ⑤ 로그아웃
+    logout: (
+      <section key="logout" className="rounded-2xl border border-line bg-card2 p-4">
+        <button
+          type="button"
+          onClick={async () => {
+            await logout();
+            onLogout();
+          }}
+          className="w-full rounded-xl border border-line py-2.5 text-sm font-semibold text-danger transition-colors hover:bg-card active:scale-[0.99]"
+        >
+          {t("common.logout")}
+        </button>
+      </section>
+    ),
+  };
+
   return (
     <motion.div
       className="absolute inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-6"
@@ -210,156 +395,9 @@ export default function SettingsSheet({
           </button>
         </div>
 
-        <div className="mt-4 space-y-3">
-        {/* ① 알림 */}
-        <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">{t("settings.pushTitle")}</h3>
-          {!pushSupported ? (
-            <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushUnsupported")}</p>
-          ) : !pushReady ? (
-            <div className="mt-2 space-y-2.5">
-              <div className="h-9 w-full rounded-xl bg-line motion-safe:animate-pulse" />
-              <div className="h-6 w-2/3 rounded bg-line motion-safe:animate-pulse" />
-              <div className="h-6 w-1/2 rounded bg-line motion-safe:animate-pulse" />
-            </div>
-          ) : !pushOffered ? (
-            <p className="mt-2 text-[11px] leading-relaxed text-muted">{t("settings.pushNotOffered")}</p>
-          ) : (
-            <>
-              <div className="mt-2 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-fg">{t("settings.pushLabel")}</div>
-                  <div className="text-xs text-muted">
-                    {subscribed ? t("settings.pushSubscribed") : t("settings.pushOff")}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={subscribed}
-                  aria-label={t("settings.pushToggleAria")}
-                  onClick={toggleMaster}
-                  disabled={pushBusy}
-                  className={[
-                    "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
-                    subscribed ? "bg-accent" : "bg-line",
-                  ].join(" ")}
-                >
-                  <span
-                    className={[
-                      "inline-block h-5 w-5 transform rounded-full bg-card shadow-card transition-transform",
-                      subscribed ? "translate-x-5" : "translate-x-0.5",
-                    ].join(" ")}
-                  />
-                </button>
-              </div>
-              <div className="mt-2 space-y-0.5">
-                {config.events
-                  .filter((ev) => KIND_LABEL[ev])
-                  .map((ev) => (
-                    <CheckRow
-                      key={ev}
-                      checked={topics.includes(ev)}
-                      onChange={() => toggleKind(ev)}
-                      label={t(KIND_LABEL[ev])}
-                    />
-                  ))}
-              </div>
-            </>
-          )}
-        </section>
-
-        {/* ② 탭 표시 */}
-        <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">{t("settings.tabsTitle")}</h3>
-          <div className="mt-1 space-y-0.5">
-            <CheckRow
-              checked={tabPrefs.perf}
-              onChange={() => onTabPrefs({ ...tabPrefs, perf: !tabPrefs.perf })}
-              label={t("settings.tabsPerf")}
-            />
-            <CheckRow
-              checked={tabPrefs.timeline}
-              onChange={() => onTabPrefs({ ...tabPrefs, timeline: !tabPrefs.timeline })}
-              label={t("settings.tabsTimeline")}
-            />
-          </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted">{t("settings.tabsNote")}</p>
-        </section>
-
-        {/* ③ 언어 — 테마 토글과 같은 표시 계열 설정 */}
-        <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">{t("settings.langTitle")}</h3>
-          <div className="mt-2 flex gap-1 rounded-xl bg-card p-1">
-            {(["ko", "en"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => setLang(l)}
-                aria-pressed={lang === l}
-                className={[
-                  "min-h-[40px] flex-1 rounded-lg text-sm font-medium transition-colors",
-                  lang === l ? "bg-accent text-accent-fg shadow-card" : "text-muted hover:text-fg",
-                ].join(" ")}
-              >
-                {l === "ko" ? "한국어" : "English"}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* ④ 닉네임 변경 */}
-        <section className="rounded-2xl border border-line bg-card2 p-4">
-          <h3 className="text-sm font-semibold text-fg">{t("settings.nickTitle")}</h3>
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              value={nickInput}
-              onChange={(e) => {
-                setNickInput(e.target.value);
-                setNickErr(null);
-                setNickOk(false);
-              }}
-              onKeyDown={(e) => {
-                // 한글 IME 조합 확정 Enter(keyCode 229)는 무시 — 마지막 글자 유실·이중 제출 방지
-                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                if (e.key === "Enter") saveNick();
-              }}
-              maxLength={16}
-              aria-label={t("settings.nickAria")}
-              placeholder={t("settings.nickPlaceholder")}
-              className="min-w-0 flex-1 rounded-xl border border-line bg-card px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-            <button
-              type="button"
-              onClick={saveNick}
-              disabled={!nickValid || nickBusy || trimmed === nick}
-              className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-bold text-accent-fg transition active:scale-[0.99] disabled:opacity-40"
-            >
-              {nickBusy ? t("settings.nickSaving") : t("common.save")}
-            </button>
-          </div>
-          {nickErr && (
-            <div className="mt-1.5 text-xs text-danger" role="alert">
-              {nickErr}
-            </div>
-          )}
-          {nickOk && <div className="mt-1.5 text-xs text-accent">{t("settings.nickChanged")}</div>}
-        </section>
-
-        {/* ⑤ 로그아웃 */}
-        <section className="rounded-2xl border border-line bg-card2 p-4">
-          <button
-            type="button"
-            onClick={async () => {
-              await logout();
-              onLogout();
-            }}
-            className="w-full rounded-xl border border-line py-2.5 text-sm font-semibold text-danger transition-colors hover:bg-card active:scale-[0.99]"
-          >
-            {t("common.logout")}
-          </button>
-        </section>
-        </div>
+        {/* 섹션 렌더 — 정규화된 id 목록(shown) 순회. 부재 시 전체가 현행 순서로 나와
+            기존 정적 나열과 동일한 DOM을 낸다(회귀 0). */}
+        <div className="mt-4 space-y-3">{shown.map((id) => sectionViews[id])}</div>
       </motion.div>
     </motion.div>
   );
