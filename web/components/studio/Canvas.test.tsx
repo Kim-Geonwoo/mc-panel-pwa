@@ -142,6 +142,38 @@ describe("StudioCanvas (T2.3 — 탭 콘텐츠 선택·프리뷰 탭 제어)", (
   });
 });
 
+describe("StudioCanvas (T3.1 — Shift+클릭 실제 동작 통과)", () => {
+  it("일반 클릭은 선택만 하고 내부 onClick은 실행하지 않는다", () => {
+    const { onSelect, onPreviewTab } = draw({ layout: layoutMaterialized });
+    fireEvent.click(rtl.getByRole("tab", { name: "상점" }));
+    expect(onSelect).toHaveBeenLastCalledWith({ scope: { kind: "screen" }, path: [1] });
+    expect(onPreviewTab).not.toHaveBeenCalled();
+  });
+
+  it("Shift+클릭은 내부 onClick(탭 전환)을 실행하고 선택하지 않는다", () => {
+    const { onSelect, onPreviewTab } = draw({ layout: layoutMaterialized });
+    fireEvent.click(rtl.getByRole("tab", { name: "상점" }), { shiftKey: true });
+    expect(onPreviewTab).toHaveBeenCalledWith("shop");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("mousedown 기본동작: 일반은 차단, Shift는 통과(입력 포커스 허용)", () => {
+    draw({ layout: layoutMaterialized });
+    const tab = rtl.getByRole("tab", { name: "상점" });
+    // fireEvent는 defaultPrevented면 false를 반환한다
+    expect(fireEvent.mouseDown(tab)).toBe(false);
+    expect(fireEvent.mouseDown(tab, { shiftKey: true })).toBe(true);
+  });
+
+  it("Shift 힌트는 편집 모드에서만 보인다", () => {
+    const a = draw({ layout: layoutMaterialized });
+    expect(rtl.getByText(/Shift\+클릭 = 실제 동작 실행/)).toBeInTheDocument();
+    a.unmount();
+    draw({ layout: layoutMaterialized, editing: false });
+    expect(rtl.queryByText(/Shift\+클릭 = 실제 동작 실행/)).toBeNull();
+  });
+});
+
 // tabControl 회귀 가드 — 부재 시 PanelProvider는 기존 내부 탭 상태 그대로(메인 패널
 // 경로), 존재 시 외부 상태를 그대로 소비한다.
 function TabProbe() {

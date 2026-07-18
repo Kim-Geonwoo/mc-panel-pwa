@@ -2,7 +2,9 @@
 
 // 캔버스 — 드래프트 레이아웃을 실제 PanelProvider+BlockRenderer 조합으로 라이브
 // 프리뷰한다(블록들이 실제 API를 폴링). 편집 모드에서는 캡처 단계에서 클릭·마우스다운을
-// 가로채 내부 버튼/입력의 오작동을 막고 클릭을 "블록 선택"으로 바꾼다.
+// 가로채 내부 버튼/입력의 오작동을 막고 클릭을 "블록 선택"으로 바꾼다. 단 Shift+클릭은
+// 가로채기를 우회해 실제 인터랙션을 실행한다(T3.1) — 채팅 전송 등 실발신 가능성은
+// 캔버스 상단 힌트로 고지한다.
 // 블록 식별은 display:contents 래퍼(data-spath=spathId)로 한다 — 박스를 만들지 않으므로
 // 실제 레이아웃(플렉스 체인)에 영향이 없고, DOM 조상 체인으로 스코프 경로를 역추적할
 // 수 있다. 프리뷰 탭 상태는 StudioApp이 소유하고 tabControl로 주입한다(T2.3) —
@@ -196,11 +198,44 @@ export default function StudioCanvas({
   onLogout: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useI18n();
+
+  // 물리 Shift 키 눌림 추적 — submit 이벤트(SubmitEvent)에는 shiftKey가 없어서,
+  // Shift+클릭·Shift+Enter가 유발한 폼 제출을 통과시키려면 키 상태를 따로 기억해야
+  // 한다. 편집 모드에서만 리스닝하고, 키업 유실(창 포커스 이탈 등)에 대비해 blur에서
+  // 리셋한다.
+  const shiftHeldRef = useRef(false);
+  useEffect(() => {
+    if (!editing) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = true;
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === "Shift") shiftHeldRef.current = false;
+    };
+    const reset = () => {
+      shiftHeldRef.current = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", reset);
+    return () => {
+      shiftHeldRef.current = false;
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", reset);
+    };
+  }, [editing]);
 
   // 클릭 → 가장 가까운 래퍼(data-spath)의 스코프 경로로 선택. 캡처 단계에서 전파를
   // 끊어 블록 내부의 onClick(탭 전환·시트 열기 등)이 실행되지 않게 한다. 파싱은
   // parseSpathId(화면·탭 스코프 공용) — 형식 위반은 null(선택 해제)로 관대 처리.
+  // Shift+클릭(T3.1)은 preventDefault·stopPropagation을 생략하고 즉시 반환 — 실제
+  // 인터랙션(탭 전환·시트 여닫기·입력 포커스)이 그대로 실행되고 선택은 일어나지
+  // 않는다. 시트가 열린 상태의 일반 클릭은 시트 DOM에 data-spath가 없어 선택 해제만
+  // 되며, 시트를 닫으려면 Shift+클릭이 필요하다(상단 힌트로 고지).
   const onClickCapture = (e: React.MouseEvent) => {
+    if (e.shiftKey) return;
     e.preventDefault();
     e.stopPropagation();
     const el = (e.target as Element).closest?.("[data-spath]");
@@ -216,6 +251,14 @@ export default function StudioCanvas({
 
   return (
     <div ref={hostRef} className="relative">
+      {/* 편집 모드 한정 힌트 — Shift+클릭 통과는 채팅 전송 등 실제 발신으로 이어질 수
+          있음을 상시 고지한다. 프레임 바깥(캔버스 상단)이라 시트가 열려도 가려지지
+          않고, SelectionOutline 좌표는 host 기준 상대값이라 영향이 없다. */}
+      {editing && (
+        <p className="mb-2 max-w-[390px] text-center text-[11px] text-muted">
+          {t("studio.canvas.shiftHint")}
+        </p>
+      )}
       {/* 프레임의 relative: 시트·모달(absolute inset-0)의 containing block을 폰 프레임으로
           만들어 rounded+overflow-hidden 클리핑이 absolute 자손에도 적용되게 한다(B9).
           SelectionOutline은 프레임의 형제(hostRef 기준 absolute)라 영향이 없다. */}
@@ -229,8 +272,23 @@ export default function StudioCanvas({
         style={themed.style}
         onClickCapture={editing ? onClickCapture : undefined}
         // mousedown 기본동작 차단 — 편집 모드에서 입력창 포커스·텍스트 선택을 막는다.
-        onMouseDownCapture={editing ? (e) => e.preventDefault() : undefined}
-        onSubmitCapture={editing ? (e) => e.preventDefault() : undefined}
+        // Shift+마우스다운은 통과시켜 실제 포커스가 잡히게 한다(T3.1).
+        onMouseDownCapture={
+          editing
+            ? (e) => {
+                if (!e.shiftKey) e.preventDefault();
+              }
+            : undefined
+        }
+        // submit 기본동작(폼 내비게이션) 차단 — Shift가 눌린 채 유발된 제출은 통과.
+        // SubmitEvent에는 shiftKey가 없어 위 shiftHeldRef로 판정한다.
+        onSubmitCapture={
+          editing
+            ? (e) => {
+                if (!shiftHeldRef.current) e.preventDefault();
+              }
+            : undefined
+        }
       >
         {/* tabControl: 프리뷰 탭을 스튜디오가 제어한다 — 미리보기 모드의 탭바 클릭도
             이 경로(블록의 setTab→onPreviewTab)로 정상 동작하고, 편집 모드 클릭은 위
