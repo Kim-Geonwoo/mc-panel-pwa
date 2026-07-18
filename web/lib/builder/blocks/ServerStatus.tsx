@@ -10,10 +10,11 @@ import { usePanel } from "../context";
 import Avatar from "../../../components/Avatar";
 import ProfileSheet from "../../../components/ProfileSheet";
 import Sparkline from "../../../components/Sparkline";
+import { cx, type BlockComponentProps } from "../registry";
 
 type Player = Status["players"][number];
 
-export default function ServerStatus() {
+export default function ServerStatus({ styleClassName, styleInline }: BlockComponentProps) {
   const { t } = useI18n();
   const { status, tpsHist, up, players, onLogout } = usePanel();
   const [tpsOpen, setTpsOpen] = useState(false);
@@ -24,7 +25,12 @@ export default function ServerStatus() {
     <>
       {/* 고정 상태 카드 */}
       <div className="shrink-0 px-5">
-        <div className="rounded-2xl border border-line bg-card p-4 shadow-card">
+        {/* 스타일 적용 지점(고정): 상태 카드 = 주 시각 요소. 다중 루트 블록이므로
+            프로필 시트·TPS 모달·피크 라인에는 적용하지 않는다(계획 T4.2). */}
+        <div
+          className={cx("rounded-2xl border border-line bg-card p-4 shadow-card", styleClassName)}
+          style={styleInline}
+        >
           <div className="flex items-center gap-3">
             <span className="relative flex h-3 w-3">
               {up && (

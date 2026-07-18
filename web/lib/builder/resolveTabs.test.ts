@@ -33,12 +33,35 @@ describe("resolveTabs", () => {
     expect(resolveTabs(undefined, { perf: true, timeline: false })).toEqual(["chat", "perf"]);
   });
 
-  it("ignores unknown tab ids (deferred to increment 2)", () => {
+  it("passes unknown tab ids through in layout order (B1)", () => {
+    const tabs = [
+      { id: "info", label: lbl },
+      { id: "chat", label: lbl },
+      { id: "shop", label: lbl },
+      { id: "perf", label: lbl },
+    ];
+    expect(resolveTabs({ tabs }, ALL)).toEqual(["info", "chat", "shop", "perf"]);
+  });
+
+  it("drops unknown tabs with enabled:false", () => {
+    const tabs = [
+      { id: "chat", label: lbl },
+      { id: "shop", label: lbl, enabled: false },
+    ];
+    expect(resolveTabs({ tabs }, ALL)).toEqual(["chat"]);
+  });
+
+  it("keeps unknown tabs regardless of personal prefs", () => {
     const tabs = [
       { id: "chat", label: lbl },
       { id: "shop", label: lbl },
+      { id: "perf", label: lbl },
     ];
-    expect(resolveTabs({ tabs }, ALL)).toEqual(["chat"]);
+    expect(resolveTabs({ tabs }, { perf: false, timeline: false })).toEqual(["chat", "shop"]);
+  });
+
+  it("prepends chat when the layout has only unknown tabs", () => {
+    expect(resolveTabs({ tabs: [{ id: "shop", label: lbl }] }, ALL)).toEqual(["chat", "shop"]);
   });
 
   it("always includes chat even if the layout omits or disables it", () => {
@@ -50,8 +73,10 @@ describe("resolveTabs", () => {
     const tabs = [
       { id: "chat", label: lbl },
       { id: "chat", label: lbl },
+      { id: "shop", label: lbl },
+      { id: "shop", label: lbl },
       { id: "perf", label: lbl },
     ];
-    expect(resolveTabs({ tabs }, ALL)).toEqual(["chat", "perf"]);
+    expect(resolveTabs({ tabs }, ALL)).toEqual(["chat", "shop", "perf"]);
   });
 });

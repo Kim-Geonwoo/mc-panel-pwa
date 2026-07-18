@@ -30,6 +30,32 @@
   color-scheme: dark;
 }
 
+/* 라이트 강제 스코프 — 다크 문서(.dark html) 안에서 부분 트리(스튜디오 캔버스의 폰
+   프레임)만 라이트로 보여줄 때 쓴다. CSS 변수는 가장 가까운 조상 선언이 이기므로
+   이 블록이 상속된 다크 값을 프레임 이하에서 덮어쓴다.
+   주의: 변수 목록·값은 위 :root(라이트 기본)와 반드시 동기화할 것. */
+.light {
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --card2: #eef1f5;
+  --line: #e3e7ed;
+  --fg: #161a20;
+  --muted: #687184;
+  --accent: #15a34a;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  color-scheme: light;
+}
+
+/* 모서리 토큰 — tailwind.config.ts borderRadius(lg/xl/2xl)가 소비한다. 기본값은
+   Tailwind 기본과 동일(0.5/0.75/1rem = 회귀 0 기준점). applyTheme(theme.radius)가
+   문서 전역으로, 스튜디오 캔버스는 canvasThemeStyle이 프레임 인라인 변수로 덮어쓴다. */
+:root {
+  --r-lg: 0.5rem;
+  --r-xl: 0.75rem;
+  --r-2xl: 1rem;
+}
+
 :root {
   /* 앱 셸 높이. ViewportFix가 화면 키보드를 추적하기 위해 px로 덮어쓴다 */
   --app-h: 100dvh;

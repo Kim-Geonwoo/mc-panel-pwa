@@ -6,6 +6,9 @@ import {
   removeAt,
   moveNode,
   updateProps,
+  duplicateAt,
+  wrapAt,
+  unwrapAt,
   countNodes,
   maxDepth,
   type BlockPath,
@@ -212,6 +215,130 @@ describe("updateProps", () => {
   });
 });
 
+// 트리의 모든 문자열 key 수집 — 재발급 유일성 검증용(루트처럼 key 없는 노드는 제외).
+const collectKeys = (b: Block, acc: string[] = []): string[] => {
+  if (typeof b.props?.key === "string") acc.push(b.props.key);
+  for (const c of b.children ?? []) collectKeys(c, acc);
+  return acc;
+};
+
+// n단 vstack 사슬(maxDepth === n). 깊이 경계 테스트용.
+const chain = (n: number): Block =>
+  n <= 1 ? { type: "text", props: { key: `d${n}` } } : { type: "vstack", props: { key: `d${n}` }, children: [chain(n - 1)] };
+
+describe("duplicateAt", () => {
+  it("inserts the copy as the next sibling with a fresh key", () => {
+    const tr = base();
+    const res = duplicateAt(tr, [0]);
+    expect(keysOf(res).slice(0, 1)).toEqual(["A"]);
+    expect(keysOf(res).slice(2)).toEqual(["B", "C"]);
+    const copy = getAt(res, [1])!;
+    expect(copy.type).toBe("text");
+    expect(typeof copy.props?.key).toBe("string");
+    expect(copy.props?.key).not.toBe("A"); // 원본 key 재사용 금지
+  });
+
+  it("re-keys every descendant of the copy (zero duplicates in the whole tree)", () => {
+    const tr = base();
+    const res = duplicateAt(tr, [1]);
+    const copy = getAt(res, [2])!;
+    expect(copy.type).toBe("hstack");
+    expect((copy.children ?? []).map((c) => c.type)).toEqual(["logo", "spacer"]); // 구조는 동일
+    const keys = collectKeys(res);
+    expect(keys).toHaveLength(8); // 원본 5(A·B·B1·B2·C) + 사본 3(hstack·logo·spacer)
+    expect(new Set(keys).size).toBe(keys.length); // key 중복 0
+  });
+
+  it("does not mutate the input and shares untouched subtrees", () => {
+    const tr = base();
+    const snapshot = structuredClone(tr);
+    const res = duplicateAt(tr, [1, 0]);
+    expect(tr).toEqual(snapshot);
+    expect(res.children?.[0]).toBe(tr.children?.[0]); // 변경 경로 밖은 참조 공유
+    expect(res.children?.[2]).toBe(tr.children?.[2]);
+    expect(keysOf(getAt(res, [1]))).toContain("B2");
+  });
+
+  it("returns the original tree for the root or an invalid path", () => {
+    const tr = base();
+    expect(duplicateAt(tr, [])).toBe(tr); // 루트는 형제 자리가 없다
+    expect(duplicateAt(tr, [9])).toBe(tr);
+    expect(duplicateAt(tr, [0, 0])).toBe(tr);
+  });
+});
+
+describe("wrapAt", () => {
+  it("replaces the node with a wrapper holding it (wrapper keyed, node key kept)", () => {
+    const tr = base();
+    const res = wrapAt(tr, [0], "hstack");
+    const wrapper = getAt(res, [0])!;
+    expect(wrapper.type).toBe("hstack");
+    expect(typeof wrapper.props?.key).toBe("string");
+    expect(wrapper.children).toHaveLength(1);
+    expect(getAt(res, [0, 0])?.props?.key).toBe("A"); // 감싸인 노드는 기존 key 보존
+    expect(getAt(res, [0, 0])).toBe(tr.children?.[0]); // 노드 자체는 참조 그대로
+  });
+
+  it("wraps a nested container without touching siblings", () => {
+    const tr = base();
+    const res = wrapAt(tr, [1], "vstack");
+    expect(getAt(res, [1])?.type).toBe("vstack");
+    expect(getAt(res, [1, 0])?.props?.key).toBe("B");
+    expect(keysOf(getAt(res, [1, 0]))).toEqual(["B1", "B2"]);
+    expect(res.children?.[0]).toBe(tr.children?.[0]);
+    expect(keysOf(tr)).toEqual(["A", "B", "C"]); // 원본 불변
+  });
+
+  it("refuses to wrap the root or an invalid path", () => {
+    const tr = base();
+    expect(wrapAt(tr, [], "vstack")).toBe(tr);
+    expect(wrapAt(tr, [9], "vstack")).toBe(tr);
+  });
+
+  it("allows wrapping up to depth 20 and refuses beyond (depth boundary)", () => {
+    // 19단 사슬의 잎(경로 길이 18)을 감싸면 결과 깊이 20 — 허용 경계.
+    const ok = chain(19);
+    const leafPath: BlockPath = Array(18).fill(0);
+    const wrapped = wrapAt(ok, leafPath, "vstack");
+    expect(wrapped).not.toBe(ok);
+    expect(maxDepth(wrapped)).toBe(20);
+    // 20단 사슬의 잎을 감싸면 21 — 한도 초과로 원본 반환.
+    const full = chain(20);
+    expect(wrapAt(full, Array(19).fill(0) as BlockPath, "vstack")).toBe(full);
+  });
+});
+
+describe("unwrapAt", () => {
+  it("promotes children in place, preserving order and keys", () => {
+    const tr = base();
+    const res = unwrapAt(tr, [1]);
+    expect(keysOf(res)).toEqual(["A", "B1", "B2", "C"]); // 순서 보존
+    expect(res.children?.[1]).toBe(tr.children?.[1]?.children?.[0]); // 승격 자식은 참조 그대로
+    expect(res.children?.[2]).toBe(tr.children?.[1]?.children?.[1]);
+  });
+
+  it("does not mutate the input tree", () => {
+    const tr = base();
+    const snapshot = structuredClone(tr);
+    unwrapAt(tr, [1]);
+    expect(tr).toEqual(snapshot);
+  });
+
+  it("returns the original tree for the root, a leaf, or empty children", () => {
+    const tr = base();
+    expect(unwrapAt(tr, [])).toBe(tr); // 루트
+    expect(unwrapAt(tr, [0])).toBe(tr); // 비컨테이너(leaf)
+    const withEmpty: Block = { type: "vstack", children: [{ type: "vstack", props: { key: "E" }, children: [] }] };
+    expect(unwrapAt(withEmpty, [0])).toBe(withEmpty); // 빈 children
+  });
+
+  it("returns the original tree for an invalid path", () => {
+    const tr = base();
+    expect(unwrapAt(tr, [9])).toBe(tr);
+    expect(unwrapAt(tr, [1, 5])).toBe(tr);
+  });
+});
+
 describe("countNodes / maxDepth", () => {
   it("counts a single node as 1 with depth 1", () => {
     expect(countNodes({ type: "text" })).toBe(1);
@@ -271,6 +398,46 @@ describe("random operation fuzzing", () => {
         getAt(tr, randPath(tr));
       }
       expect(BlockSchema.safeParse(tr).success).toBe(true);
+    }
+  });
+
+  it("keeps invariants over 100 random duplicate/wrap/unwrap ops", () => {
+    let s = 20260718;
+    const rnd = () => {
+      s |= 0; s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const randPath = (root: Block): BlockPath => {
+      const path: BlockPath = [];
+      let node: Block | undefined = root;
+      const depth = Math.floor(rnd() * 4);
+      for (let d = 0; d < depth; d++) {
+        const len: number = node?.children?.length ?? 0;
+        const i: number = Math.floor(rnd() * (len + 2)) - 1; // -1 ~ len(무효 섞임)
+        path.push(i);
+        node = node?.children?.[i];
+      }
+      return path;
+    };
+
+    let tr = base();
+    for (let k = 0; k < 100; k++) {
+      const op = Math.floor(rnd() * 3);
+      if (op === 0) {
+        // 복제는 노드 수를 늘리므로 스키마 상한(500)에 닿지 않게 가드한다 —
+        // 실제 앱에서는 발행 사전검사가 막는 영역이라 퍼저에서만 제한한다.
+        tr = countNodes(tr) <= 250 ? duplicateAt(tr, randPath(tr)) : removeAt(tr, randPath(tr));
+      } else if (op === 1) {
+        tr = wrapAt(tr, randPath(tr), rnd() < 0.5 ? "vstack" : "hstack");
+      } else {
+        tr = unwrapAt(tr, randPath(tr));
+      }
+      expect(BlockSchema.safeParse(tr).success).toBe(true);
+      expect(maxDepth(tr)).toBeLessThanOrEqual(20); // wrapAt 깊이 가드 불변식
+      const keys = collectKeys(tr);
+      expect(new Set(keys).size).toBe(keys.length); // 재발급 key 유일성 — 중복 0
     }
   });
 });

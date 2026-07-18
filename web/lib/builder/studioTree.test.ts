@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { Block } from "./schema";
+import type { Block, Layout } from "./schema";
+import { moveNode } from "./editOps";
+import { TAB_ROOT_TYPE, getScopeRoot, writeScopeRoot, type EditScope } from "./studioScope";
 import {
   dragRows,
+  flattenScoped,
   flattenScreen,
+  ghostTabContent,
   isDescendant,
   isSamePosition,
+  keyedBlocks,
   keyedScreen,
   projectDrop,
+  renameProps,
   rowId,
 } from "./studioTree";
 
@@ -131,5 +137,95 @@ describe("keyedScreen", () => {
     expect(typeof out.children?.[0].props?.key).toBe("string");
     expect(out.children?.[1].props?.key).toBe("keep");
     expect(src.children?.[0].props).toBeUndefined(); // 원본 불변
+  });
+});
+
+describe("keyedBlocks", () => {
+  it("assigns keys across the array (descendants included), keeps existing keys, never mutates", () => {
+    const src: Block[] = [
+      { type: "text" },
+      { type: "vstack", children: [{ type: "logo", props: { key: "keep" } }, { type: "spacer" }] },
+    ];
+    const out = keyedBlocks(src);
+    expect(out).toHaveLength(2);
+    expect(typeof out[0].props?.key).toBe("string");
+    expect(typeof out[1].props?.key).toBe("string");
+    expect(out[1].children?.[0].props?.key).toBe("keep");
+    expect(typeof out[1].children?.[1].props?.key).toBe("string");
+    expect(src[0].props).toBeUndefined(); // 원본 불변
+    expect(keyedBlocks([])).toEqual([]);
+  });
+});
+
+describe("flattenScoped", () => {
+  it("prefixes row ids with the scope while keeping paths and depths", () => {
+    const rows = flattenScoped(base(), { kind: "screen" });
+    expect(rows.map((r) => r.id)).toEqual(["s|0", "s|1", "s|1.0", "s|1.1", "s|2"]);
+    const tabRows = flattenScoped(base(), { kind: "tab", tabId: "chat" });
+    expect(tabRows.map((r) => r.id)).toEqual(["t:chat|0", "t:chat|1", "t:chat|1.0", "t:chat|1.1", "t:chat|2"]);
+    expect(tabRows.map((r) => r.depth)).toEqual([0, 0, 1, 1, 0]);
+    expect(tabRows.map((r) => r.path)).toEqual([[0], [1], [1, 0], [1, 1], [2]]);
+  });
+});
+
+describe("ghostTabContent", () => {
+  const label = { ko: "탭", en: "Tab" };
+
+  it("returns the default mapping for a known tab without explicit content", () => {
+    expect(ghostTabContent({ id: "chat", label })).toEqual([{ type: "chat-feed" }]);
+    expect(ghostTabContent({ id: "perf", label })).toEqual([{ type: "perf-view" }]);
+  });
+
+  it("treats an explicit empty array as missing (same fallback rule as planTabContent)", () => {
+    expect(ghostTabContent({ id: "timeline", label, content: [] })).toEqual([
+      { type: "timeline-view" },
+    ]);
+  });
+
+  it("returns null when explicit content exists or there is no default mapping", () => {
+    expect(ghostTabContent({ id: "chat", label, content: [{ type: "text" }] })).toBeNull();
+    expect(ghostTabContent({ id: "info", label })).toBeNull(); // 미지 탭 = 빈 편집 가능 섹션
+  });
+});
+
+describe("renameProps", () => {
+  it("sets a trimmed, 40-char-clamped name and keeps other keys (key included)", () => {
+    const out = renameProps({ key: "k1", ko: "x" }, `  ${"a".repeat(50)}  `);
+    expect(out).toEqual({ key: "k1", ko: "x", name: "a".repeat(40) });
+  });
+
+  it("removes the name key on an empty (or whitespace) value", () => {
+    expect(renameProps({ key: "k1", name: "old" }, "   ")).toEqual({ key: "k1" });
+  });
+
+  it("returns null when nothing changes (same value / empty on a nameless node)", () => {
+    expect(renameProps({ name: "same", key: "k1" }, " same ")).toBeNull();
+    expect(renameProps({ key: "k1" }, "")).toBeNull();
+    expect(renameProps(undefined, "  ")).toBeNull();
+  });
+});
+
+describe("tab-scope drag round trip", () => {
+  it("projectDrop with scoped ids feeds moveNode and writes back into tabs[].content", () => {
+    const content: Block[] = [
+      { type: "text", props: { key: "a" } },
+      { type: "vstack", props: { key: "b" }, children: [] },
+      { type: "logo", props: { key: "c" } },
+    ];
+    const l: Layout = {
+      version: 1,
+      tabs: [{ id: "chat", label: { ko: "채팅", en: "Chat" }, content }],
+    };
+    const scope: EditScope = { kind: "tab", tabId: "chat" };
+    const root = getScopeRoot(l, scope, { type: "vstack" })!;
+    const rows = flattenScoped(root, scope);
+    // 가상 탭 루트를 컨테이너로 인정해야 depth 0 재배치가 가능하다(StructureTree와 동일 규칙).
+    const isC = (t: string) => t === TAB_ROOT_TYPE || t === "vstack";
+    const tgt = projectDrop(root, rows, "t:chat|0", "t:chat|2", 0, INDENT, isC)!;
+    expect(tgt).toEqual({ parentPath: [], index: 3, depth: 0 });
+    const out = writeScopeRoot(l, scope, moveNode(root, [0], tgt.parentPath, tgt.index));
+    expect(out.tabs![0].content!.map((b) => b.props?.key)).toEqual(["b", "c", "a"]);
+    expect(JSON.stringify(out)).not.toContain(TAB_ROOT_TYPE); // 가상 루트 미유입
+    expect(l.tabs![0].content!.map((b) => b.props?.key)).toEqual(["a", "b", "c"]); // 원본 불변
   });
 });

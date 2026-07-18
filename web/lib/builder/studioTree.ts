@@ -2,8 +2,10 @@
 // 테스트한다. 드롭 투영은 dnd-kit SortableTree 예제의 방식을 따른다: 세로 위치는
 // 정렬 목록의 over 인덱스가, 중첩 깊이는 드래그의 가로 이동량(dx)이 정한다.
 // 결과는 editOps.moveNode가 기대하는 "제거 전 좌표"(parentPath, index)로 낸다.
-import type { Block } from "./schema";
+import type { Block, TabSpec } from "./schema";
 import { insertAt, type BlockPath } from "./editOps";
+import { spathId, type EditScope } from "./studioScope";
+import { planTabContent } from "./tabContentPlan";
 
 export type FlatRow = { id: string; node: Block; path: BlockPath; depth: number };
 
@@ -11,6 +13,13 @@ export type FlatRow = { id: string; node: Block; path: BlockPath; depth: number 
 // 동안만 안정적이면 된다(드래그 중에는 트리를 바꾸지 않는다).
 export function rowId(path: BlockPath): string {
   return path.join(".");
+}
+
+// 스코프 행 id("s|0.1" / "t:chat|2")로 평탄화한다 — 트리가 화면+탭별 섹션(각각
+// 독립 DndContext)으로 나뉘어도 행 id는 패널 전역에서 유일해야 하므로 스코프를
+// 접두한다. projectDrop 등은 id를 불투명 문자열로만 비교하므로 그대로 재사용된다.
+export function flattenScoped(root: Block, scope: EditScope): FlatRow[] {
+  return flattenScreen(root).map((r) => ({ ...r, id: spathId({ scope, path: r.path }) }));
 }
 
 // 루트 자신을 제외한 자손 전체를 DFS 순서로 평탄화한다(depth 0 = 루트의 자식).
@@ -119,8 +128,46 @@ export function isSamePosition(fromPath: BlockPath, target: DropTarget): boolean
   );
 }
 
-// 트리(자손 포함)의 key 없는 노드에 key를 부여한 사본을 만든다. editOps의 withKeys를
-// 그대로 쓰기 위해 더미 루트에 insertAt하는 방식 — key 로직을 중복 구현하지 않는다.
+// 블록 배열(자손 포함)의 key 없는 노드에 key를 부여한 사본을 만든다. editOps의
+// withKeys를 그대로 쓰기 위해 더미 루트에 insertAt하는 방식 — key 로직을 중복
+// 구현하지 않는다. 탭 content 정규화(스코프 편집 대비)와 유령 탭 물질화에 쓴다.
+export function keyedBlocks(blocks: Block[]): Block[] {
+  let root: Block = { type: "vstack", children: [] };
+  blocks.forEach((b, i) => {
+    root = insertAt(root, [], i, b);
+  });
+  return root.children ?? [];
+}
+
+// 트리(자손 포함)의 key 없는 노드에 key를 부여한 사본을 만든다.
 export function keyedScreen(s: Block): Block {
-  return insertAt({ type: "vstack" }, [], 0, s).children?.[0] ?? s;
+  return keyedBlocks([s])[0] ?? s;
+}
+
+// 탭의 유령(미물질화) 판정 — 명시 content가 비어 있으면 렌더러(planTabContent)가
+// 기본 매핑(chat→chat-feed 등)으로 폴백한다. 그때의 기본 블록 목록을 반환하고,
+// 명시 content가 있거나 기본 매핑도 없는 탭이면 null. 빈 배열([])도 "없음"으로
+// 치는 폴백 조건을 planTabContent와 공유해야 트리 표기와 실제 렌더가 항상 일치한다
+// — 편집으로 content가 []가 되면 유령 상태로 되돌아가는 것이 의도된 동작이다.
+export function ghostTabContent(tab: TabSpec): Block[] | null {
+  if (tab.content?.length) return null;
+  const blocks = planTabContent([tab.id], tab.id, undefined, () => true)[0]?.blocks ?? [];
+  return blocks.length ? blocks : null;
+}
+
+// 표시명(props.name) 커밋 — name만 바꾼 새 props를 만든다(트림·40자 클램프,
+// 빈 값=키 제거, key 등 나머지 키는 보존). 결과가 현재와 같으면 null을 반환해
+// 호출부가 no-op 처리한다(히스토리 오염 방지). key 보존은 updateProps도 이중으로
+// 보장한다.
+export function renameProps(
+  props: Record<string, unknown> | undefined,
+  name: string,
+): Record<string, unknown> | null {
+  const cur = typeof props?.name === "string" ? props.name : "";
+  const next = name.trim().slice(0, 40);
+  if (next === cur) return null;
+  const out: Record<string, unknown> = { ...props };
+  if (next) out.name = next;
+  else delete out.name;
+  return out;
 }

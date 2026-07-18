@@ -8,17 +8,25 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { getLayout, getMe, getToken, UnauthorizedError } from "../../lib/api";
 import type { Layout } from "../../lib/builder/schema";
-import { keyedScreen } from "../../lib/builder/studioTree";
+import { keyedBlocks, keyedScreen } from "../../lib/builder/studioTree";
 import { loadDraft } from "../../lib/builder/studioDraft";
 import { useI18n } from "../../lib/i18n";
 import StudioApp from "../../components/studio/StudioApp";
 
 type Stage = "checking" | "noToken" | "denied" | "error" | "ready";
 
-// 편집 대상 레이아웃 정규화 — screen이 있으면 key 없는 노드에 key를 부여해 두어
-// 재배치 시 React 상태가 엉키지 않게 한다(기존 key는 보존).
+// 편집 대상 레이아웃 정규화 — key 없는 노드에 key를 부여해 두어 재배치 시 React
+// 상태가 엉키지 않게 한다(기존 key는 보존). 화면 트리와 각 탭 content(스코프 편집
+// 대상) 모두에 적용하고, content 없는 탭은 그대로 둔다(기본 매핑 폴백·유령 표기 유지).
 function normalize(l: Layout): Layout {
-  return l.screen ? { ...l, screen: keyedScreen(l.screen) } : l;
+  const out: Layout = { ...l };
+  if (l.screen) out.screen = keyedScreen(l.screen);
+  if (l.tabs) {
+    out.tabs = l.tabs.map((tb) =>
+      tb.content?.length ? { ...tb, content: keyedBlocks(tb.content) } : tb,
+    );
+  }
+  return out;
 }
 
 function GuardCard({

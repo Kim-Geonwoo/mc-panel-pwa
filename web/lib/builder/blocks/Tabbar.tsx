@@ -1,11 +1,13 @@
 "use client";
 
 // tabbar 블록 — 세그먼트 탭 컨트롤. 순서·표시는 visibleTabs(레이아웃∩개인설정),
-// 라벨은 레이아웃 tabs의 i18n 맵을 우선하고 없으면 현행 사전 키로 폴백한다.
+// 라벨은 레이아웃 tabs의 i18n 맵을 우선하고 없으면 현행 사전 키로, 미지 id는
+// id 그대로 폴백한다(visibleTabs는 string[] — 미지 탭도 통과, B1).
 import { useI18n } from "../../i18n";
 import { usePanel } from "../context";
+import { cx, type BlockComponentProps } from "../registry";
 
-export default function Tabbar() {
+export default function Tabbar({ styleClassName, styleInline }: BlockComponentProps) {
   const { t, lang } = useI18n();
   const { layout, tab, setTab, visibleTabs, unread } = usePanel();
 
@@ -19,7 +21,13 @@ export default function Tabbar() {
   };
 
   return (
-    <div role="tablist" aria-label={t("panel.tabsAria")} className="mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1">
+    // 스타일 적용 지점: 탭리스트 루트 div(유일 루트 — 개별 탭 버튼은 제외).
+    <div
+      role="tablist"
+      aria-label={t("panel.tabsAria")}
+      className={cx("mx-4 mt-1 flex shrink-0 gap-1 rounded-2xl bg-card2 p-1", styleClassName)}
+      style={styleInline}
+    >
       {visibleTabs.map((tb) => (
         <button
           key={tb}

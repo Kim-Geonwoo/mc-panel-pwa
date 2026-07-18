@@ -16,7 +16,7 @@ import {
 } from "react";
 import { fetchStatus, Status, getMe, UnauthorizedError } from "../api";
 import type { Layout } from "./schema";
-import { resolveTabs, type KnownTab } from "./resolveTabs";
+import { resolveTabs } from "./resolveTabs";
 
 type Player = Status["players"][number];
 
@@ -29,7 +29,7 @@ export type PanelCtx = {
   tab: string;
   setTab: (t: string) => void;
   tabRef: MutableRefObject<string>; // 채팅 폴러의 미확인 집계용(리렌더 없이 현재 탭 참조)
-  visibleTabs: KnownTab[];
+  visibleTabs: string[]; // 미지 탭 id도 포함(B1 — 라벨·콘텐츠 폴백은 소비자가 처리)
   tabPrefs: { perf: boolean; timeline: boolean };
   updateTabPrefs: (p: { perf: boolean; timeline: boolean }) => void;
   status: Status | null;
@@ -49,13 +49,21 @@ const Ctx = createContext<PanelCtx | null>(null);
 export function PanelProvider({
   layout,
   onLogout,
+  tabControl,
   children,
 }: {
   layout: Layout;
   onLogout: () => void;
+  // 스튜디오 캔버스의 프리뷰 탭 제어(T2.3) — 있으면 내부 탭 상태 대신 외부 상태를
+  // 그대로 쓴다(제어 컴포넌트화). additive-only: 부재 시 아래 innerTab 경로로 기존
+  // 동작과 100% 동일하며, 메인 패널(components/Panel.tsx)은 이 prop을 넘기지 않는다.
+  tabControl?: { tab: string; setTab: (t: string) => void };
   children: ReactNode;
 }) {
-  const [tab, setTab] = useState<string>("chat");
+  // 내부 탭 상태 — tabControl 부재 시에만 사용된다(훅 순서 유지를 위해 항상 선언).
+  const [innerTab, setInnerTab] = useState<string>("chat");
+  const tab = tabControl ? tabControl.tab : innerTab;
+  const setTab = tabControl ? tabControl.setTab : setInnerTab;
   const tabRef = useRef(tab);
   // 성능/타임라인 탭 표시 여부(채팅은 항상 표시). 정적 export 프리렌더에서 localStorage가
   // 없으므로 기본값으로 시작하고, 마운트 후 이펙트에서 복원한다.
@@ -117,7 +125,7 @@ export function PanelProvider({
   // 현재 활성 탭이 (개인 설정이나 레이아웃으로) 숨겨졌으면 채팅으로 되돌린다.
   // resolveTabs는 항상 채팅을 포함하므로 폴백은 안전하다.
   useEffect(() => {
-    if (!resolveTabs(layout, tabPrefs).includes(tab as KnownTab)) setTab("chat");
+    if (!resolveTabs(layout, tabPrefs).includes(tab)) setTab("chat");
   }, [tab, tabPrefs, layout]);
 
   // 접속현황 폴링 — 1분에 한 번
