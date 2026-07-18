@@ -227,6 +227,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "studio.canvas.ghostTab": "기본 구성 탭 — 구조 트리의 \"편집 시작\"을 누르면 여기서 선택·편집할 수 있습니다.",
     "studio.canvas.shiftHint":
       "Shift+클릭 = 실제 동작 실행(탭 전환·시트 여닫기·입력 포커스) — 채팅 입력 등은 실제로 발신되니 주의하세요.",
+    "studio.pane.leftAria": "왼쪽 패널 폭 조절",
+    "studio.pane.rightAria": "오른쪽 패널 폭 조절",
     "studio.section.block": "속성",
     "studio.section.tabs": "탭",
     "studio.section.theme": "테마",
@@ -482,6 +484,8 @@ const dict: Record<Lang, Record<string, string>> = {
     "studio.canvas.ghostTab": "Default content — press \"Start editing\" in the structure tree to select and edit here.",
     "studio.canvas.shiftHint":
       "Shift+click = run the real action (switch tabs, open/close sheets, focus inputs) — note that chat input and similar are actually sent.",
+    "studio.pane.leftAria": "Resize left panel",
+    "studio.pane.rightAria": "Resize right panel",
     "studio.section.block": "Props",
     "studio.section.tabs": "Tabs",
     "studio.section.theme": "Theme",

@@ -29,6 +29,12 @@ import {
 import { ghostTabContent, keyedBlocks, keyedScreen, renameProps } from "../../lib/builder/studioTree";
 import { clearDraft, saveDraft } from "../../lib/builder/studioDraft";
 import {
+  loadPanes,
+  savePanes,
+  type PaneSide,
+  type PaneWidths,
+} from "../../lib/builder/paneSize";
+import {
   canRedo,
   canUndo,
   initHistory,
@@ -39,6 +45,7 @@ import {
 } from "../../lib/builder/studioHistory";
 import { publishErrorKey, validateForPublish } from "../../lib/builder/studioPublish";
 import TopBar from "./TopBar";
+import PaneResizer from "./PaneResizer";
 import Palette from "./Palette";
 import StructureTree from "./StructureTree";
 import StudioCanvas from "./Canvas";
@@ -82,6 +89,22 @@ export default function StudioApp({
   const [savedOnce, setSavedOnce] = useState(false);
   // 서버본을 드래프트로 가리지 않도록, 실제 편집이 시작된 뒤에만 자동저장한다.
   const dirtyRef = useRef(false);
+  // 좌·우 패널 폭(T3.2) — 저장본 복원(검증·클램프는 loadPanes 책임). StudioApp은
+  // 클라 가드 통과 후에만 마운트되므로 초기화에서 localStorage를 읽어도 SSR
+  // 프리렌더 불일치가 없다. 저장은 제스처 종료(onPaneCommit) 시에만 한다.
+  const [panes, setPanes] = useState<PaneWidths>(() => loadPanes());
+  // 커밋 시 "반대편 폭"을 읽기 위한 미러 — 반대편은 자기 제스처의 커밋에서만
+  // 바뀌고 그때 동기 갱신되므로, 드래그 미리보기(onPaneResize) 중에도 어긋나지 않는다.
+  const panesRef = useRef(panes);
+  const onPaneResize = useCallback((side: PaneSide, w: number) => {
+    setPanes((p) => (p[side] === w ? p : { ...p, [side]: w }));
+  }, []);
+  const onPaneCommit = useCallback((side: PaneSide, w: number) => {
+    const next = { ...panesRef.current, [side]: w };
+    panesRef.current = next;
+    savePanes(next);
+    setPanes((p) => (p[side] === w ? p : { ...p, [side]: w }));
+  }, []);
 
   const draft = hist.present;
   // 캔버스·트리가 다루는 유효 화면 — 드래프트에 screen이 없으면 번들 기본을 쓴다.
@@ -383,7 +406,11 @@ export default function StudioApp({
         statusKind={statusKind}
       />
       <div className="flex min-h-0 flex-1">
-        <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-card p-3">
+        {/* 패널 폭은 인라인 style — Tailwind JIT는 동적 값 클래스를 못 본다(T3.2). */}
+        <aside
+          style={{ width: panes.left }}
+          className="shrink-0 overflow-y-auto border-r border-line bg-card p-3"
+        >
           <Palette onAdd={onAdd} placed={placed} />
           <div className="my-3 border-t border-line" />
           <StructureTree
@@ -397,6 +424,12 @@ export default function StudioApp({
             onMaterialize={onMaterializeTab}
           />
         </aside>
+        <PaneResizer
+          side="left"
+          width={panes.left}
+          onResize={(w) => onPaneResize("left", w)}
+          onCommit={(w) => onPaneCommit("left", w)}
+        />
         <main className="flex min-w-0 flex-1 items-start justify-center overflow-auto p-6">
           {/* 캔버스는 ScopedPath 직결(T2.3) — 화면·탭 콘텐츠 블록 모두 클릭 선택되고,
               프리뷰 탭은 previewTab(스튜디오 소유)으로 제어한다. */}
@@ -411,7 +444,16 @@ export default function StudioApp({
             onLogout={onNeedLogin}
           />
         </main>
-        <aside className="w-80 shrink-0 overflow-y-auto border-l border-line bg-card p-3">
+        <PaneResizer
+          side="right"
+          width={panes.right}
+          onResize={(w) => onPaneResize("right", w)}
+          onCommit={(w) => onPaneCommit("right", w)}
+        />
+        <aside
+          style={{ width: panes.right }}
+          className="shrink-0 overflow-y-auto border-l border-line bg-card p-3"
+        >
           <div className="mb-3 flex gap-1 rounded-xl bg-card2 p-1" role="tablist">
             {sections.map((s) => (
               <button
