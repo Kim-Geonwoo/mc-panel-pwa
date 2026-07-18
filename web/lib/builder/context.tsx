@@ -49,13 +49,21 @@ const Ctx = createContext<PanelCtx | null>(null);
 export function PanelProvider({
   layout,
   onLogout,
+  tabControl,
   children,
 }: {
   layout: Layout;
   onLogout: () => void;
+  // 스튜디오 캔버스의 프리뷰 탭 제어(T2.3) — 있으면 내부 탭 상태 대신 외부 상태를
+  // 그대로 쓴다(제어 컴포넌트화). additive-only: 부재 시 아래 innerTab 경로로 기존
+  // 동작과 100% 동일하며, 메인 패널(components/Panel.tsx)은 이 prop을 넘기지 않는다.
+  tabControl?: { tab: string; setTab: (t: string) => void };
   children: ReactNode;
 }) {
-  const [tab, setTab] = useState<string>("chat");
+  // 내부 탭 상태 — tabControl 부재 시에만 사용된다(훅 순서 유지를 위해 항상 선언).
+  const [innerTab, setInnerTab] = useState<string>("chat");
+  const tab = tabControl ? tabControl.tab : innerTab;
+  const setTab = tabControl ? tabControl.setTab : setInnerTab;
   const tabRef = useRef(tab);
   // 성능/타임라인 탭 표시 여부(채팅은 항상 표시). 정적 export 프리렌더에서 localStorage가
   // 없으므로 기본값으로 시작하고, 마운트 후 이펙트에서 복원한다.

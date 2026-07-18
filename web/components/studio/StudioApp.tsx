@@ -73,6 +73,11 @@ export default function StudioApp({
   const [selected, setSelected] = useState<ScopedPath | null>(null);
   const [editing, setEditing] = useState(true);
   const [section, setSection] = useState<Section>("block");
+  // 캔버스 프리뷰의 활성 탭 — PanelProvider의 tabControl로 주입한다(T2.3). 탭 스코프
+  // 선택 시 여기를 갱신해 트리·캔버스가 같은 탭 시점을 보게 한다. 초기값은
+  // PanelProvider 내부 기본과 동일한 "chat"(회귀 0). 숨김 탭으로 바뀌면 Provider의
+  // 기존 폴백 이펙트가 이 setter로 "chat" 복귀를 요청한다(제어 역전·루프 없음).
+  const [previewTab, setPreviewTab] = useState("chat");
   const [pub, setPub] = useState<PubState>({ state: "idle" });
   const [savedOnce, setSavedOnce] = useState(false);
   // 서버본을 드래프트로 가리지 않도록, 실제 편집이 시작된 뒤에만 자동저장한다.
@@ -180,6 +185,10 @@ export default function StudioApp({
       const changed = (sp ? spathId(sp) : null) !== (selected ? spathId(selected) : null);
       setSelected(sp);
       if (sp && changed) setSection("block");
+      // 탭 스코프 선택은 캔버스 프리뷰를 그 탭으로 전환한다(트리·캔버스 시점 일치).
+      // 재클릭(비변경)에도 전환한다 — 미리보기 모드에서 다른 탭으로 옮겨둔 뒤 같은
+      // 선택 행을 다시 눌러 복귀하는 경로. 같은 값이면 setState no-op이라 무해하다.
+      if (sp?.scope.kind === "tab") setPreviewTab(sp.scope.tabId);
     },
     [selected],
   );
@@ -285,6 +294,7 @@ export default function StudioApp({
       nextTabs[i] = { ...tabs[i], content: keyedBlocks(ghost) };
       apply({ ...draft, tabs: nextTabs });
       setSelected({ scope: { kind: "tab", tabId }, path: [] });
+      setPreviewTab(tabId); // 편집을 시작한 탭을 캔버스에서 바로 보여준다
     },
     [apply, draft, tabs],
   );
@@ -388,15 +398,16 @@ export default function StudioApp({
           />
         </aside>
         <main className="flex min-w-0 flex-1 items-start justify-center overflow-auto p-6">
-          {/* 캔버스는 아직 화면 스코프 전용(BlockPath 인터페이스 유지) — 탭 스코프
-              선택은 표시선 없이 트리·인스펙터에만 나타난다. 탭 콘텐츠의 캔버스
-              선택·프리뷰 탭 제어는 T2.3에서 배선한다. */}
+          {/* 캔버스는 ScopedPath 직결(T2.3) — 화면·탭 콘텐츠 블록 모두 클릭 선택되고,
+              프리뷰 탭은 previewTab(스튜디오 소유)으로 제어한다. */}
           <StudioCanvas
             layout={draft}
             screen={screen}
             editing={editing}
-            selected={selected?.scope.kind === "screen" ? selected.path : null}
-            onSelect={(p) => onSelect(p ? { scope: { kind: "screen" }, path: p } : null)}
+            selected={selected}
+            onSelect={onSelect}
+            previewTab={previewTab}
+            onPreviewTab={setPreviewTab}
             onLogout={onNeedLogin}
           />
         </main>
