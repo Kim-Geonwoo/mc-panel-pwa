@@ -11,15 +11,20 @@ import { useI18n } from "../../lib/i18n";
 import { DEFAULT_SCREEN, REGISTRY } from "../../lib/builder/registry";
 import type { Block, Layout, TabSpec, ThemeSpec } from "../../lib/builder/schema";
 import {
+  duplicateAt,
   getAt,
   insertAt,
   moveNode,
   removeAt,
+  unwrapAt,
   updateProps,
+  wrapAt,
   type BlockPath,
 } from "../../lib/builder/editOps";
 import { countBlockType } from "../../lib/builder/layoutQuery";
+import type { ContextMenuItem } from "../../lib/builder/contextMenu";
 import {
+  displayName,
   getScopeRoot,
   spathId,
   writeScopeRoot,
@@ -52,9 +57,93 @@ import StudioCanvas from "./Canvas";
 import Inspector from "./Inspector";
 import TabsEditor from "./TabsEditor";
 import ThemeEditor from "./ThemeEditor";
+import ContextMenu, { ContextMenuPanel } from "./ContextMenu";
+import StyleFields from "./StyleFields";
 
 type Section = "block" | "tabs" | "theme";
 type PubState = { state: "idle" | "busy" | "ok" | "err"; errKey?: string };
+
+// 컨텍스트 메뉴 상태(T6.3) — StudioApp 소유 싱글턴 1개. 대상 ScopedPath는 열 때
+// 고정한다(메뉴 표시 중 선택 변경과 무관 — 항목 onRun 클로저에 sp가 담긴다).
+// stage: "menu"=명령 목록, "style"/"rename"=같은 앵커에 여는 2단 폼 패널(피드백 6 —
+// 스타일 수정 폼이 우클릭 도구에 직접 포함된다).
+type MenuStage = "menu" | "style" | "rename";
+type MenuState = {
+  sp: ScopedPath;
+  x: number;
+  y: number;
+  anchorRect: { left: number; bottom: number } | null;
+  stage: MenuStage;
+};
+
+// 선택 요소의 화면 rect — Shift+F10(키보드 열림, 좌표 (0,0))의 배치 앵커. 캔버스 래퍼는
+// display:contents라 자체 박스가 없어 Range로 내용 합집합 rect를 재고(SelectionOutline과
+// 동일 기법), 비어 있으면 트리 행(data-treerow)으로 폴백한다. 둘 다 없으면 null —
+// placeMenu가 (0,0)을 뷰포트 여백으로 클램프해 좌상단에 연다.
+function menuAnchorRect(sp: ScopedPath): { left: number; bottom: number } | null {
+  const esc = spathId(sp).replace(/["\\]/g, "\\$&");
+  const wrap = document.querySelector(`[data-spath="${esc}"]`);
+  if (wrap) {
+    const range = document.createRange();
+    range.selectNodeContents(wrap);
+    const r = range.getBoundingClientRect();
+    if (r.width > 0 || r.height > 0) return { left: r.left, bottom: r.bottom };
+  }
+  const row = document.querySelector(`[data-treerow="${esc}"]`);
+  if (row) {
+    const r = row.getBoundingClientRect();
+    return { left: r.left, bottom: r.bottom };
+  }
+  return null;
+}
+
+// 메뉴 이름 변경 패널의 입력 — 커밋 규칙(트림·40자·no-op 걸러내기)은 상위 onRename
+// (renameProps)이 처리한다. Enter=커밋+닫기, blur=커밋, Escape=취소. 트리 인라인과
+// 달리 패널의 Escape 닫기는 포커스 복원(focus())이 blur를 유발하므로, Escape를 먼저
+// 기록해 그 blur가 커밋으로 이어지지 않게 한다(트리는 unmount 경로라 blur 자체가 없다).
+function RenameField({
+  initial,
+  placeholder,
+  ariaLabel,
+  hint,
+  onCommit,
+  onDone,
+}: {
+  initial: string;
+  placeholder: string;
+  ariaLabel: string;
+  hint: string;
+  onCommit: (v: string) => void;
+  onDone: () => void; // Enter 커밋 후 닫기(포커스 복원 포함 close)
+}) {
+  const canceledRef = useRef(false);
+  return (
+    <div>
+      <input
+        type="text"
+        defaultValue={initial}
+        placeholder={placeholder}
+        maxLength={40}
+        aria-label={ariaLabel}
+        className="w-full rounded-lg border border-line bg-card px-2 py-1.5 text-xs text-fg outline-none focus:border-accent"
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            // 닫기(포커스 복원)가 유발하는 blur의 재커밋은 renameProps가 no-op 처리한다.
+            onCommit(e.currentTarget.value);
+            onDone();
+          } else if (e.key === "Escape") {
+            canceledRef.current = true; // 버블된 Escape가 패널을 닫는다 — blur 커밋만 차단
+          }
+        }}
+        onBlur={(e) => {
+          if (!canceledRef.current) onCommit(e.target.value);
+        }}
+      />
+      <p className="mt-1 text-[10px] text-muted">{hint}</p>
+    </div>
+  );
+}
 
 // 팔레트에서 새로 만드는 블록. text는 레지스트리 라벨을 초기 문구로 넣어 캔버스에서
 // 바로 보이게 한다(빈 텍스트는 찾기 어렵다). key는 insertAt이 부여한다.
@@ -73,7 +162,7 @@ export default function StudioApp({
   initial: Layout;
   onNeedLogin: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [hist, setHist] = useState<StudioHistory>(() => initHistory(initial));
   // 선택은 스코프 경로(ScopedPath) — 화면 트리 또는 탭 콘텐츠 안의 위치.
   // 캔버스 탭 콘텐츠 선택(T2.3)도 이 모델을 그대로 소비한다.
@@ -215,6 +304,42 @@ export default function StudioApp({
     },
     [selected],
   );
+
+  // ── 컨텍스트 메뉴(T6.3) — 열림 상태·좌표·항목은 StudioApp 소유 ────────────────
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  // 우클릭 열기(캔버스·트리 공용) — 같은 핸들러에서 선택을 대상으로 교체한 뒤 연다
+  // (React 배칭으로 항목 활성화·인스펙터가 새 선택 기준으로 렌더된다, 빌더 관행).
+  const onOpenMenu = useCallback(
+    (sp: ScopedPath, x: number, y: number) => {
+      onSelect(sp);
+      setMenu({ sp, x, y, anchorRect: null, stage: "menu" });
+    },
+    [onSelect],
+  );
+
+  // Shift+F10 — 선택 요소 기준 키보드 열림(좌표 (0,0) + anchorRect 폴백, T6.2 계약).
+  // 입력 필드에서는 무시(undo 단축키와 동일 가드).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "F10" || !e.shiftKey || !selected) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      e.preventDefault();
+      setMenu({ sp: selected, x: 0, y: 0, anchorRect: menuAnchorRect(selected), stage: "menu" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+
+  // 메뉴·패널 대상 무효화 — 대상 노드가 사라지면(undo·삭제·탭 제거 등) 닫는다.
+  // 유령 복귀 등 선택 해제 조건은 위 선택 이펙트가 처리하고, 여기는 메뉴 대상만 본다.
+  useEffect(() => {
+    if (!menu) return;
+    const root = getScopeRoot(draft, menu.sp.scope, fallbackScreen);
+    if (!root || !getAt(root, menu.sp.path)) setMenu(null);
+  }, [draft, fallbackScreen, menu]);
 
   // 중복 배치 가드(B8) — unique 블록이 레이아웃 어딘가(화면·탭 content·암묵 기본
   // 매핑)에 이미 있으면 팔레트 버튼을 비활성화한다. 계수는 layoutQuery의 순수 로직.
@@ -389,6 +514,95 @@ export default function StudioApp({
       ? selected.path
       : null;
 
+  // ── 컨텍스트 메뉴 대상 스냅샷·명령 목록(T6.3) ─────────────────────────────────
+  // 대상 노드는 렌더마다 현재 드래프트에서 재해석한다 — 2단 스타일 패널의 연속 커밋이
+  // 항상 최신 props 위에 쌓이고, 실행(onRun)도 rootOf 재조회로 최신 트리에 연산한다.
+  // 대상이 사라진 프레임은 null이 되어 아무것도 렌더하지 않고, 위 무효화 이펙트가 닫는다.
+  const menuRoot = menu ? rootOf(menu.sp.scope) : null;
+  const menuNode = menu && menuRoot ? getAt(menuRoot, menu.sp.path) : null;
+  const menuDef =
+    menuNode && Object.hasOwn(REGISTRY, menuNode.type) ? REGISTRY[menuNode.type] : undefined;
+
+  // 명령 목록 — 대상별 활성화(계획 T6.3 그룹 순서). 불가 항목은 숨기지 않고 disabled로
+  // 둔다(APG — 포커스 가능·실행 차단, 루트의 복제·삭제·감싸기 등이 여기 해당).
+  let menuItems: ContextMenuItem[] | null = null;
+  if (menu && menu.stage === "menu" && menuRoot && menuNode) {
+    const m = menu;
+    const sp = m.sp;
+    const isRoot = sp.path.length === 0;
+    const idx = isRoot ? -1 : sp.path[sp.path.length - 1];
+    const parentPath = sp.path.slice(0, -1);
+    const siblings = isRoot ? 0 : getAt(menuRoot, parentPath)?.children?.length ?? 0;
+    // 스타일 적용 가능 대상 — noStyle·미지 타입 제외. 탭 루트([])는 tab-root가 레지스트리
+    // 비등록이라 def=undefined로 자연히 걸러진다(인스펙터의 지원 판정과 동일 기준).
+    const styleable = !!menuDef && !menuDef.noStyle;
+    // 실행 공통부 — 루트를 재조회해 editOps에 넘기고, no-op(원본 반환)이면 히스토리도
+    // 선택도 건드리지 않는다. nextSel 지정 시 성공한 경우에만 선택을 옮긴다.
+    const exec = (fn: (root: Block) => Block, nextSel?: ScopedPath | null) => {
+      const root = rootOf(sp.scope);
+      if (!root) return;
+      const next = fn(root);
+      if (next === root) return;
+      applyScope(sp.scope, root, next);
+      if (nextSel !== undefined) setSelected(nextSel);
+    };
+    // 2단 전환 — close(메뉴 unmount) 뒤에 실행되지만 m 스냅샷을 직접 쓰므로 배칭의
+    // 최종 승자가 된다(함수형 갱신은 직전 setMenu(null)을 봐서 쓰면 안 된다).
+    const toStage = (stage: MenuStage) => setMenu({ ...m, stage });
+    menuItems = [
+      { id: "rename", label: t("studio.menu.rename"), disabled: isRoot, onRun: () => toStage("rename") },
+      {
+        id: "duplicate",
+        label: t("studio.menu.duplicate"),
+        disabled: isRoot,
+        onRun: () => exec((r) => duplicateAt(r, sp.path)),
+      },
+      "separator",
+      {
+        id: "wrap-v",
+        label: t("studio.menu.wrapV"),
+        disabled: isRoot,
+        onRun: () => exec((r) => wrapAt(r, sp.path, "vstack")),
+      },
+      {
+        id: "wrap-h",
+        label: t("studio.menu.wrapH"),
+        disabled: isRoot,
+        onRun: () => exec((r) => wrapAt(r, sp.path, "hstack")),
+      },
+      {
+        id: "unwrap",
+        label: t("studio.menu.unwrap"),
+        // unwrapAt의 컨테이너 판정은 children 유무만이므로 registry kind==="layout"
+        // 가드를 배선에서 건다(T6.1 인계) — element가 비정상적으로 children을 가져도
+        // 메뉴에서는 풀 수 없다.
+        disabled: isRoot || menuDef?.kind !== "layout" || !menuNode.children?.length,
+        onRun: () => exec((r) => unwrapAt(r, sp.path), null), // 경로 재계산 — 선택 해제(onMove와 동일)
+      },
+      "separator",
+      {
+        id: "move-up",
+        label: t("studio.menu.moveUp"),
+        disabled: isRoot || idx <= 0,
+        // moveNode의 toIndex는 "제거 전 좌표" — 위로는 idx-1 그대로 그 자리에 안착한다.
+        onRun: () =>
+          exec((r) => moveNode(r, sp.path, parentPath, idx - 1), { scope: sp.scope, path: [...parentPath, idx - 1] }),
+      },
+      {
+        id: "move-down",
+        label: t("studio.menu.moveDown"),
+        disabled: isRoot || idx >= siblings - 1,
+        // 아래로는 제거 보정(-1)을 감안해 idx+2를 넘기면 결과가 idx+1이 된다.
+        onRun: () =>
+          exec((r) => moveNode(r, sp.path, parentPath, idx + 2), { scope: sp.scope, path: [...parentPath, idx + 1] }),
+      },
+      "separator",
+      { id: "style", label: t("studio.menu.style"), disabled: !styleable, onRun: () => toStage("style") },
+      "separator",
+      { id: "remove", label: t("studio.menu.remove"), danger: true, disabled: isRoot, onRun: () => onRemove(sp) },
+    ];
+  }
+
   return (
     <div className="flex h-screen flex-col bg-bg text-fg">
       <TopBar
@@ -422,6 +636,7 @@ export default function StudioApp({
             onRemove={onRemove}
             onRename={onRename}
             onMaterialize={onMaterializeTab}
+            onContextMenu={onOpenMenu}
           />
         </aside>
         <PaneResizer
@@ -439,6 +654,7 @@ export default function StudioApp({
             editing={editing}
             selected={selected}
             onSelect={onSelect}
+            onContextMenu={onOpenMenu}
             previewTab={previewTab}
             onPreviewTab={setPreviewTab}
             onLogout={onNeedLogin}
@@ -495,6 +711,65 @@ export default function StudioApp({
           )}
         </aside>
       </div>
+      {/* 컨텍스트 메뉴(T6.3, 포털) — 재열림은 key로 remount(활성 항목·포커스 초기화). */}
+      {menu?.stage === "menu" && menuItems && (
+        <ContextMenu
+          key={`${menu.x},${menu.y}`}
+          x={menu.x}
+          y={menu.y}
+          items={menuItems}
+          anchorRect={menu.anchorRect}
+          onClose={closeMenu}
+        />
+      )}
+      {/* 2단 스타일 패널(피드백 6 — 메뉴 자리에서 직접 수정). 폼·커밋 규약은 인스펙터와
+          동일(StyleFields·styleProps 단일 소스) — 패널은 열린 채 연속 커밋된다. */}
+      {menu?.stage === "style" && menuNode && menuDef && !menuDef.noStyle && (
+        <ContextMenuPanel
+          key={`${menu.x},${menu.y}:style`}
+          x={menu.x}
+          y={menu.y}
+          anchorRect={menu.anchorRect}
+          label={t("studio.menu.styleTitle")}
+          onClose={closeMenu}
+        >
+          {() => (
+            <StyleFields
+              value={menuNode.props?.style}
+              layout={menuDef.kind === "layout"}
+              onCommit={(style) => {
+                // 인스펙터 setProp("style", …)과 동일 규칙 — undefined면 키 제거.
+                const cur: Record<string, unknown> = { ...menuNode.props };
+                if (style === undefined) delete cur.style;
+                else cur.style = style;
+                onUpdateProps(menu.sp, cur);
+              }}
+            />
+          )}
+        </ContextMenuPanel>
+      )}
+      {/* 2단 이름 변경 패널 — 트리 인라인과 같은 커밋 규칙(onRename→renameProps 공유). */}
+      {menu?.stage === "rename" && menuNode && menu.sp.path.length > 0 && (
+        <ContextMenuPanel
+          key={`${menu.x},${menu.y}:rename`}
+          x={menu.x}
+          y={menu.y}
+          anchorRect={menu.anchorRect}
+          label={t("studio.menu.renameTitle")}
+          onClose={closeMenu}
+        >
+          {(close) => (
+            <RenameField
+              initial={typeof menuNode.props?.name === "string" ? menuNode.props.name : ""}
+              placeholder={displayName(menuNode, menuDef, lang)}
+              ariaLabel={t("studio.tree.renameAria")}
+              hint={t("studio.menu.renameHint")}
+              onCommit={(v) => onRename(menu.sp, v)}
+              onDone={() => close(true)}
+            />
+          )}
+        </ContextMenuPanel>
+      )}
     </div>
   );
 }

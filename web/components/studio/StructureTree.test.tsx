@@ -30,6 +30,7 @@ function setup() {
     onRemove: vi.fn(),
     onRename: vi.fn(),
     onMaterialize: vi.fn(),
+    onContextMenu: vi.fn(),
   };
   render(
     <LangProvider>
@@ -122,6 +123,28 @@ describe("StructureTree (scoped sections)", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(cbs.onRename).not.toHaveBeenCalled();
     expect(rtl.queryByRole("textbox")).toBeNull();
+  });
+
+  it("reports a row right-click with the scoped path and pointer coordinates (T6.3)", () => {
+    const cbs = setup();
+    // 행 요소는 data-treerow(=spathId)로 특정한다 — Shift+F10 앵커 조회와 같은 셀렉터.
+    const row = document.querySelector('[data-treerow="t:info|0"]')!;
+    const notCanceled = fireEvent.contextMenu(row, { clientX: 9, clientY: 8 });
+    expect(notCanceled).toBe(false); // 브라우저 기본 메뉴 차단
+    expect(cbs.onContextMenu).toHaveBeenCalledWith(
+      { scope: { kind: "tab", tabId: "info" }, path: [0] },
+      9,
+      8,
+    );
+  });
+
+  it("ghost rows are not wired for the context menu (T6.3 — 유령은 메뉴 미표시)", () => {
+    const cbs = setup();
+    expect(document.querySelector('[data-treerow^="t:chat"]')).toBeNull(); // 유령 행엔 행 마킹도 없다
+    const ghostRow = document.querySelector(".border-dashed")!; // chat 유령 섹션의 점선 행
+    const notCanceled = fireEvent.contextMenu(ghostRow);
+    expect(notCanceled).toBe(true); // 가로채지 않음
+    expect(cbs.onContextMenu).not.toHaveBeenCalled();
   });
 
   it("shows the empty hint for an editable tab without rows", () => {

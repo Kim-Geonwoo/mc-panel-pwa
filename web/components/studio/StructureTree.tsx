@@ -75,6 +75,7 @@ function TreeRow({
   onSelect,
   onRemove,
   onRename,
+  onMenu,
 }: {
   row: FlatRow;
   depth: number;
@@ -82,6 +83,7 @@ function TreeRow({
   onSelect: () => void;
   onRemove: () => void;
   onRename: (name: string) => void;
+  onMenu: (x: number, y: number) => void;
 }) {
   const { t, lang } = useI18n();
   // 더블클릭 이름변경 — 라벨 자리에 인라인 입력을 띄운다. 드래그 핸들(grip 버튼)과
@@ -102,6 +104,15 @@ function TreeRow({
         marginLeft: depth * INDENT,
       }}
       onClick={onSelect}
+      // 우클릭 → 상위 메뉴 열기(T6.3). 기본 메뉴를 막고 좌표를 그대로 넘긴다 — 행이
+      // 이벤트 소유자라 캔버스처럼 위임 파싱이 필요 없다. data-treerow는 Shift+F10의
+      // 앵커 rect 조회용이다(캔버스 래퍼는 display:contents라 자체 rect가 없다).
+      data-treerow={row.id}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onMenu(e.clientX, e.clientY);
+      }}
       className={[
         "group flex min-h-[30px] cursor-pointer items-center gap-1.5 rounded-lg border px-1.5 text-xs",
         selected ? "border-accent bg-card2 text-fg" : "border-transparent text-fg hover:bg-card2",
@@ -186,6 +197,7 @@ function TreeSection({
   onMove,
   onRemove,
   onRename,
+  onContextMenu,
 }: {
   scope: EditScope;
   root: Block;
@@ -198,6 +210,7 @@ function TreeSection({
   onMove: (scope: EditScope, from: BlockPath, toParent: BlockPath, toIndex: number) => void;
   onRemove: (sp: ScopedPath) => void;
   onRename: (sp: ScopedPath, name: string) => void;
+  onContextMenu?: (sp: ScopedPath, x: number, y: number) => void;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -275,6 +288,7 @@ function TreeSection({
                   onSelect={() => onSelect({ scope, path: r.path })}
                   onRemove={() => onRemove({ scope, path: r.path })}
                   onRename={(name) => onRename({ scope, path: r.path }, name)}
+                  onMenu={(x, y) => onContextMenu?.({ scope, path: r.path }, x, y)}
                 />
               ))}
             </div>
@@ -349,6 +363,7 @@ export default function StructureTree({
   onRemove,
   onRename,
   onMaterialize,
+  onContextMenu,
 }: {
   screen: Block;
   tabs: TabSpec[];
@@ -358,10 +373,13 @@ export default function StructureTree({
   onRemove: (sp: ScopedPath) => void;
   onRename: (sp: ScopedPath, name: string) => void;
   onMaterialize: (tabId: string) => void;
+  // 행 우클릭 통지(T6.3) — 편집 가능한 TreeRow에만 배선한다. 유령 섹션(GhostSection)은
+  // 선택 대상이 아니므로 메뉴도 미표시(물질화는 기존 "편집 시작" 버튼 경로 유지).
+  onContextMenu?: (sp: ScopedPath, x: number, y: number) => void;
 }) {
   const { t, lang } = useI18n();
   const selId = selected ? spathId(selected) : null;
-  const common = { selId, onSelect, onMove, onRemove, onRename };
+  const common = { selId, onSelect, onMove, onRemove, onRename, onContextMenu };
   return (
     <div>
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">

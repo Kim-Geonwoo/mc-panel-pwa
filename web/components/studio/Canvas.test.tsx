@@ -71,6 +71,7 @@ function draw(opts: {
 }) {
   const onSelect = vi.fn();
   const onPreviewTab = vi.fn();
+  const onContextMenu = vi.fn();
   const utils = render(
     <LangProvider>
       <StudioCanvas
@@ -79,13 +80,14 @@ function draw(opts: {
         editing={opts.editing ?? true}
         selected={opts.selected ?? null}
         onSelect={onSelect}
+        onContextMenu={onContextMenu}
         previewTab={opts.previewTab ?? "chat"}
         onPreviewTab={onPreviewTab}
         onLogout={() => {}}
       />
     </LangProvider>,
   );
-  return { ...utils, onSelect, onPreviewTab };
+  return { ...utils, onSelect, onPreviewTab, onContextMenu };
 }
 
 describe("StudioCanvas (T2.3 — 탭 콘텐츠 선택·프리뷰 탭 제어)", () => {
@@ -171,6 +173,36 @@ describe("StudioCanvas (T3.1 — Shift+클릭 실제 동작 통과)", () => {
     a.unmount();
     draw({ layout: layoutMaterialized, editing: false });
     expect(rtl.queryByText(/Shift\+클릭 = 실제 동작 실행/)).toBeNull();
+  });
+});
+
+describe("StudioCanvas (T6.3 — 우클릭 컨텍스트 메뉴 배선)", () => {
+  it("편집 모드 우클릭: preventDefault + 대상 spath·좌표를 통지한다", () => {
+    const { onContextMenu, onSelect } = draw({ layout: layoutMaterialized });
+    const notCanceled = fireEvent.contextMenu(rtl.getByText("화면 문구"), { clientX: 12, clientY: 34 });
+    expect(notCanceled).toBe(false); // 브라우저 기본 메뉴 차단
+    expect(onContextMenu).toHaveBeenCalledWith({ scope: { kind: "screen" }, path: [0] }, 12, 34);
+    // 선택 교체는 상위(StudioApp)가 같은 핸들러에서 한다 — 캔버스는 통지만.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("탭 스코프 블록도 동일하게 파싱한다", () => {
+    const { onContextMenu } = draw({ layout: layoutMaterialized });
+    fireEvent.contextMenu(rtl.getByText("탭 안 문구"), { clientX: 5, clientY: 6 });
+    expect(onContextMenu).toHaveBeenCalledWith({ scope: { kind: "tab", tabId: "chat" }, path: [0] }, 5, 6);
+  });
+
+  it("미편집 모드에서는 가로채지 않는다(네이티브 메뉴 유지)", () => {
+    const { onContextMenu } = draw({ layout: layoutMaterialized, editing: false });
+    const notCanceled = fireEvent.contextMenu(rtl.getByText("화면 문구"));
+    expect(notCanceled).toBe(true);
+    expect(onContextMenu).not.toHaveBeenCalled();
+  });
+
+  it("유령 탭 콘텐츠 우클릭은 화면 스코프 tab-content 블록으로 승격된다", () => {
+    const { onContextMenu } = draw({ layout: layoutGhost });
+    fireEvent.contextMenu(rtl.getByText(/기본 구성 탭/), { clientX: 1, clientY: 2 });
+    expect(onContextMenu).toHaveBeenCalledWith({ scope: { kind: "screen" }, path: [2] }, 1, 2);
   });
 });
 

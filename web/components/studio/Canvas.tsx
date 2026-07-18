@@ -184,6 +184,7 @@ export default function StudioCanvas({
   editing,
   selected,
   onSelect,
+  onContextMenu,
   previewTab,
   onPreviewTab,
   onLogout,
@@ -193,6 +194,9 @@ export default function StudioCanvas({
   editing: boolean;
   selected: ScopedPath | null;
   onSelect: (sp: ScopedPath | null) => void;
+  // 우클릭 통지(T6.3) — 대상 스코프 경로와 clientX/Y. 선택 교체+메뉴 열기는 상위
+  // (StudioApp)가 한 핸들러에서 처리한다.
+  onContextMenu?: (sp: ScopedPath, x: number, y: number) => void;
   previewTab: string; // 프리뷰 탭 상태는 StudioApp 소유 — 탭 스코프 선택과 동기화
   onPreviewTab: (t: string) => void;
   onLogout: () => void;
@@ -243,6 +247,21 @@ export default function StudioCanvas({
     onSelect(sp == null ? null : parseSpathId(sp));
   };
 
+  // 우클릭 → 컨텍스트 메뉴(T6.3). contextmenu는 click과 별개 이벤트라 위 click-capture와
+  // 충돌하지 않는다. 캡처 단계 preventDefault로 브라우저 기본 메뉴를 막고, 대상 spath를
+  // 파싱해 상위(StudioApp)에 좌표와 함께 넘긴다 — 선택 교체와 메뉴 열기를 상위가 같은
+  // 핸들러에서 처리한다(React 배칭으로 메뉴 항목 활성화가 새 선택 기준으로 렌더된다).
+  // 유령(미물질화) 탭 콘텐츠는 data-spath가 없어 바깥 tab-content 블록이 대상이 된다
+  // — 유령 블록 자체는 메뉴 대상이 아니다(클릭 선택과 동일 정책, 트리의 "편집 시작" 유도).
+  const onContextMenuCapture = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = (e.target as Element).closest?.("[data-spath]");
+    const sp = el?.getAttribute("data-spath");
+    const parsed = sp == null ? null : parseSpathId(sp);
+    if (parsed) onContextMenu?.(parsed, e.clientX, e.clientY);
+  };
+
   // 드래프트 테마를 캔버스 범위에만 미리 적용한다(문서 전역 오염 방지) — mode는
   // 프레임 클래스(dark/light — 라이트 강제는 globals.css .light 블록), accent·radius는
   // 스코프 CSS 변수. 기본 테마면 클래스·스타일이 모두 비어 현행 DOM과 동일(회귀 0).
@@ -271,6 +290,7 @@ export default function StudioCanvas({
           .join(" ")}
         style={themed.style}
         onClickCapture={editing ? onClickCapture : undefined}
+        onContextMenuCapture={editing ? onContextMenuCapture : undefined}
         // mousedown 기본동작 차단 — 편집 모드에서 입력창 포커스·텍스트 선택을 막는다.
         // Shift+마우스다운은 통과시켜 실제 포커스가 잡히게 한다(T3.1).
         onMouseDownCapture={

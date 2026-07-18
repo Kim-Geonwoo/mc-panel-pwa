@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { useState } from "react";
 import { LangProvider } from "../../lib/i18n";
-import ContextMenu from "./ContextMenu";
+import ContextMenu, { ContextMenuPanel } from "./ContextMenu";
 import type { ContextMenuItem } from "../../lib/builder/contextMenu";
 
 beforeEach(() => localStorage.setItem("panel-lang", "ko"));
@@ -173,5 +173,71 @@ describe("ContextMenu", () => {
     render(<Harness items={items} />);
     openMenu();
     expect(screen.getAllByRole("menuitem")[0]).toHaveAttribute("aria-keyshortcuts", "Ctrl+D");
+  });
+});
+
+// 2단 폼 패널 — 메뉴와 같은 앵커·닫기 세트·포커스 복원 규율을 검증한다(T6.3).
+function PanelHarness() {
+  const [open, setOpen] = useState(false);
+  return (
+    <LangProvider>
+      <button data-testid="opener" onClick={() => setOpen(true)}>
+        open
+      </button>
+      {open ? (
+        <ContextMenuPanel x={30} y={30} label="스타일 편집" onClose={() => setOpen(false)}>
+          {(close) => (
+            <>
+              <input aria-label="필드" />
+              <button type="button" onClick={() => close(true)}>
+                완료
+              </button>
+            </>
+          )}
+        </ContextMenuPanel>
+      ) : null}
+    </LangProvider>
+  );
+}
+
+const openPanel = () => {
+  const opener = screen.getByTestId("opener");
+  opener.focus();
+  fireEvent.click(opener);
+  return opener;
+};
+
+describe("ContextMenuPanel (2단 폼 패널)", () => {
+  it("opens as a labeled dialog at the coordinates and focuses the first control", () => {
+    render(<PanelHarness />);
+    openPanel();
+    const dialog = screen.getByRole("dialog", { name: "스타일 편집" });
+    expect(dialog).toHaveStyle({ left: "30px", top: "30px" });
+    expect(document.activeElement).toBe(screen.getByLabelText("필드"));
+  });
+
+  it("closes on Escape with focus restored to the invoker", () => {
+    render(<PanelHarness />);
+    const opener = openPanel();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("closes on an outside pointerdown but not on one inside the panel", () => {
+    render(<PanelHarness />);
+    openPanel();
+    fireEvent.pointerDown(screen.getByLabelText("필드")); // 내부 — 유지(폼 조작 소실 방지)
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.pointerDown(document.body); // 외부 — 닫힘
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the render-prop close closes the panel and restores focus", () => {
+    render(<PanelHarness />);
+    const opener = openPanel();
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 });
