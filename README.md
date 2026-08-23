@@ -86,7 +86,7 @@ Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 
 | 프런트엔드 | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
 | 백엔드 | Go (표준 라이브러리 + `modernc.org/sqlite` — **CGO 없는 순수 Go**) |
 | 서빙 | Go가 정적 익스포트(`output: 'export'`)를 서빙, HTTPS는 터널 경유 |
-| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
+| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Dependabot |
 
 ## 인증 모델
 
@@ -154,7 +154,7 @@ Go 바이너리가 정적 사이트와 API를 함께 서빙하므로, 배포는 
 ## 보안
 
 공급망과 코드 보안을 처음부터 끝까지 자동화했습니다 — CodeQL(SAST), OSV-Scanner + Trivy(SCA/IaC),
-gitleaks + GitHub 푸시 보호(시크릿), 그리고 릴리스 쿨다운과 CI 통과 게이트를 둔 Renovate 자동병합.
+gitleaks + GitHub 푸시 보호(시크릿), 그리고 Dependabot 보안 경고·자동 수정.
 자세한 내용과 취약점 신고: [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## 프로젝트 구조

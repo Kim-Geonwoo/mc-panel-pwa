@@ -1,5 +1,12 @@
 # Contributing
 
+> [!IMPORTANT]
+> **이 저장소는 아카이브되어 이슈와 풀 리퀘스트를 받지 않습니다.** 이어서 개발하려면
+> 포크해 주세요. 아래 절차는 아카이브 이전 기준으로 남겨 둔 기록입니다.
+>
+> **This repository is archived and does not accept issues or pull requests.** Fork it
+> to continue. The process below is retained as a record of how it worked before archival.
+
 **한국어** · English below
 
 ## 한국어
@@ -27,7 +34,7 @@
 - **웹 코드**는 `npx tsc --noEmit`, `npm run build`(web/)를 통과해야
   합니다.
 - 시크릿이나 개인 경로를 포함하지 마세요(CI에서 gitleaks가 검사합니다).
-- 의존성은 최소한으로 유지하고 버전을 고정합니다(업데이트는 Renovate가 관리합니다).
+- 의존성은 최소한으로 유지하고 버전을 고정합니다(보안 업데이트는 Dependabot이 알립니다).
 
 ### 테스트 정책
 
@@ -40,7 +47,8 @@
 ### 커밋·PR 스타일
 
 - 커밋은 간결하고 원자적으로 작성해 주세요. 유지보수자는 한국어 제목을 사용하지만,
-  외부 기여자는 영어로 작성해도 무방합니다.
+  외부 기여자는 영어로 작성해도 무방합니다. 유지보수자가 쓰는 상세 규약은
+  [.claude/skills/commit-message.md](.claude/skills/commit-message.md)에 있습니다.
 - PR 설명은 한국어·영어 병기를 권장하지만, 영어만 작성해도 받아들여집니다.
 
 ### 기여의 법적 확약 (DCO 상당)
@@ -81,7 +89,7 @@ and support for issues and PRs is best-effort. Please bear with delayed replies.
 - **Web code** must pass `npx tsc --noEmit` and `npm run build`
   (web/).
 - Do not include secrets or personal paths (gitleaks runs in CI).
-- Keep dependencies minimal and pinned (Renovate manages updates).
+- Keep dependencies minimal and pinned (Dependabot reports security updates).
 
 ### Test policy
 

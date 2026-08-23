@@ -1,5 +1,18 @@
 # Security Policy
 
+> [!IMPORTANT]
+> **이 저장소는 아카이브되었습니다. 아래의 신고 접수와 대응 시한은 더 이상 유효하지 않습니다.**
+> 아카이브된 저장소는 GitHub 비공개 취약점 신고를 받지 못하며, 새 신고에 대한 확인·심사·
+> 수정 배포를 약속하지 않습니다. 취약점을 발견했다면 이 저장소를 포크해 직접 수정하시고,
+> 이 코드를 배포에 쓰고 있다면 아래 "How this project is hardened" 절을 참고해 스스로
+> 점검해 주세요. 아래 절차는 아카이브 이전에 운영하던 정책을 기록으로 남긴 것입니다.
+>
+> **This repository is archived. The reporting channel and response timelines below are no
+> longer in effect.** Archived repositories cannot accept GitHub private vulnerability
+> reports, and no acknowledgement, triage, or fix is promised for new reports. Fork the
+> repository and patch it yourself. The policy below is retained as a record of how the
+> project was run before archival.
+
 **한국어** · English below
 
 ## 한국어
@@ -60,11 +73,14 @@ taken seriously and handled on the timeline above.
 - **SCA**: [OSV-Scanner](workflows/osv-scanner.yml) (OSV.dev) over Go modules
   and the npm tree, plus [Trivy](workflows/trivy.yml) for filesystem + config —
   both upload SARIF to the repository Security tab.
-- **Dependencies**: [Renovate](../renovate.json) keeps deps current. Patch/minor
-  updates auto-merge **only after CI passes** and a **3-day release cooldown**
-  (blunts hijacked/yanked-release windows); majors are reviewed manually.
-- **Supply chain**: every GitHub Action is pinned to a commit SHA (Renovate
-  `helpers:pinGitHubActionDigests`); workflows run with least-privilege
+- **Dependencies**: lockfiles (`go.sum`, `package-lock.json`) and Docker base images
+  are pinned by digest. GitHub Dependabot security alerts and automated security fixes
+  are enabled and were the mechanism that actually opened dependency PRs.
+  A [Renovate config](../renovate.json) with a 3-day release cooldown and CI-gated
+  auto-merge is present in the repository, but the Renovate app was never installed,
+  so those rules never took effect.
+- **Supply chain**: every GitHub Action is pinned to a commit SHA (13/13 at the time
+  of archival); workflows run with least-privilege
   `permissions:` (read-only by default, write scopes only where required).
 - **Runtime**: the API binds to loopback **by default** behind a tunnel; sessions
   are server-side and revocable; all ingress text is sanitized before use. Failed

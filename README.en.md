@@ -95,7 +95,7 @@ Status/perf are read from JSON files written by server-side KubeJS — and
 | Front end | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
 | Back end | Go (standard library + `modernc.org/sqlite` — **pure Go, no CGO**) |
 | Delivery | Static export (`output: 'export'`) served by Go; HTTPS via tunnel |
-| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
+| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Dependabot |
 
 ## Authentication model
 
@@ -166,7 +166,7 @@ sets `PANEL_DEMO=true` and can be hosted anywhere the static + Go artifact runs.
 
 Supply-chain and code security are automated end-to-end — CodeQL (SAST),
 OSV-Scanner + Trivy (SCA/IaC), gitleaks + GitHub push protection (secrets), and
-Renovate with a release cooldown and CI-gated auto-merge. Details and reporting:
+Dependabot security alerts and automated fixes. Details and reporting:
 [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## Project layout

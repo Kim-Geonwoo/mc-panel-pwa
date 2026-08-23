@@ -1,5 +1,12 @@
 # Governance
 
+> [!IMPORTANT]
+> **이 저장소는 아카이브 상태입니다.** 아래에 적힌 의사결정·리뷰·릴리스 절차는 현재
+> 수행되지 않으며, 유일한 계승 경로는 포크입니다.
+>
+> **This repository is archived.** The decision-making, review, and release processes
+> described below are no longer performed; forking is the only path forward.
+
 **한국어** · English below
 
 ## 한국어
@@ -17,7 +24,7 @@ For Life)** 로 운영됩니다. 유지보수자(@Kim-Geonwoo)가 최종 의사�
   - PR 리뷰 및 병합
   - 릴리스 발행([SemVer](https://semver.org/lang/ko/) 태그)
   - [SECURITY.md](.github/SECURITY.md)에 명시된 타임라인에 따른 보안 대응
-  - CI 유지 및 의존성 관리(Renovate 검토·승인)
+  - CI 유지 및 의존성 관리(Dependabot 경고 검토·반영)
 - **기여자(Contributor)**
   - [CONTRIBUTING.md](CONTRIBUTING.md)의 절차를 따릅니다.
   - 기대할 수 있는 것: 이슈 트래커를 통한 응답(best-effort), 병합된 기여에 대한
@@ -55,7 +62,7 @@ As a personal hobby project, support is provided on a best-effort basis.
   - Review and merge PRs
   - Cut releases ([SemVer](https://semver.org/) tags)
   - Security response per the timelines in [SECURITY.md](.github/SECURITY.md)
-  - CI and dependency upkeep (review/approve Renovate)
+  - CI and dependency upkeep (review and apply Dependabot alerts)
 - **Contributors**
   - Follow [CONTRIBUTING.md](CONTRIBUTING.md).
   - What you can expect: a response via the issue tracker (best-effort), and
