@@ -2,7 +2,7 @@ module github.com/Kim-Geonwoo/mc-panel-pwa/api
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
