@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -524,6 +525,21 @@ func (rl *rateLimiter) sweep() {
 	}
 }
 
+// isLoopbackAddr는 "host:port" 문자열이 루프백 인터페이스에만 묶이는지 판단합니다.
+// 호스트가 비어 있으면(":8099") Go는 모든 인터페이스에 바인드하므로 루프백이 아닙니다.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // clientIP는 클라이언트의 IP 주소를 반환합니다. (보안 상, 로컬에서 들어오는 요청만 포워딩 헤더를 신뢰합니다)
 func clientIP(r *http.Request) string {
 	host := r.RemoteAddr
@@ -531,18 +547,28 @@ func clientIP(r *http.Request) string {
 		host = host[:c]
 	}
 	host = strings.Trim(host, "[]")
-	// 포워딩 헤더(CF-Connecting-IP, X-Forwarded-For)는 요청이 실제로 로컬 Cloudflare 터널,
-	//즉 루프백에서 도는 cloudflared를 거쳐 들어왔을 때에만 믿습니다. 리스너가 127.0.0.1에만
-	// 묶여 있어서, 직접 접속하는 클라이언트는 이 헤더들을 위조해도 통하지 않습니다.
+	// 포워딩 헤더(CF-Connecting-IP, X-Forwarded-For)는 요청이 루프백에서 도는 프록시를
+	// 거쳐 들어왔을 때에만 믿습니다.
+	//
+	// 다만 루프백 피어라는 사실만으로는 위조를 막지 못합니다. 이 프로젝트의 표준 배치가
+	// "프록시 → 루프백 → Go"라서 인터넷에서 온 요청도 피어가 127.0.0.1이기 때문입니다.
+	// 앞단이 헤더를 덮어쓰지 않는 구성이라면 클라이언트가 값을 그대로 심을 수 있습니다.
+	// 그래서 값이 실제 IP 주소일 때만 채택합니다. 이 값은 레이트 리밋 키와 경보 메시지에
+	// 쓰이므로, 검증이 없으면 요청마다 키를 바꿔 IP별 리미터를 무력화하거나 임의 문자열을
+	// 리미터 맵과 웹훅 본문에 밀어 넣을 수 있습니다.
 	if host == "127.0.0.1" || host == "::1" {
-		if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
-			return ip
-		}
-		if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-			if c := strings.IndexByte(ip, ','); c >= 0 {
-				return strings.TrimSpace(ip[:c])
+		if v := r.Header.Get("CF-Connecting-IP"); v != "" {
+			if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+				return ip.String()
 			}
-			return strings.TrimSpace(ip)
+		}
+		if v := r.Header.Get("X-Forwarded-For"); v != "" {
+			if c := strings.IndexByte(v, ','); c >= 0 {
+				v = v[:c]
+			}
+			if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+				return ip.String()
+			}
 		}
 	}
 	return host
@@ -668,7 +694,7 @@ func (s *server) cors(w http.ResponseWriter, r *http.Request) bool {
 	}
 	w.Header().Set("Access-Control-Allow-Origin", s.cfg.allowOrigin)
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return true
@@ -1262,13 +1288,24 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok\n"))
 		})
-		// 내부 API(봇 전용) — 루프백 리스너에만 등록합니다. internal.go 참고.
-		hmux.HandleFunc("/internal/ingest", s.handleInternalIngest)
-		hmux.HandleFunc("/internal/sessions", s.handleInternalSessions)
-		hmux.HandleFunc("/internal/revoke", s.handleInternalRevoke)
-		hmux.HandleFunc("/api/layout", s.handleLayoutPut) // 루프백 전용 레이아웃 편집
+		// 내부 API(봇 전용) — 인증이 없으므로 리스너가 실제로 루프백에 묶였을 때에만
+		// 등록합니다. internal.go 참고.
+		//
+		// 이전에는 "PANEL_HEALTH_LISTEN을 루프백으로 두라"는 문서 지시가 유일한 방어였는데,
+		// 설정값 하나가 무인증 엔드포인트를 인터넷에 여는 구조는 안전하지 않습니다.
+		// Go에서 ":8099"는 0.0.0.0 전체 바인드라 오타 한 글자로도 그렇게 됩니다.
+		// 기본값(127.0.0.1:8099)에서는 동작이 이전과 완전히 같습니다.
+		haddr := getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099")
+		if isLoopbackAddr(haddr) {
+			hmux.HandleFunc("/internal/ingest", s.handleInternalIngest)
+			hmux.HandleFunc("/internal/sessions", s.handleInternalSessions)
+			hmux.HandleFunc("/internal/revoke", s.handleInternalRevoke)
+			hmux.HandleFunc("/api/layout", s.handleLayoutPut) // 루프백 전용 레이아웃 편집
+		} else {
+			log.Printf("health listener %q is not loopback — 내부 API(/internal/*, PUT /api/layout)를 등록하지 않습니다", haddr)
+		}
 		hsrv := &http.Server{
-			Addr:              getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099"),
+			Addr:              haddr,
 			Handler:           hmux,
 			ReadHeaderTimeout: 5 * time.Second,  // 요청 헤더를 읽는 시간 제한
 			ReadTimeout:       10 * time.Second, // 요청 본문을 읽는 시간 제한

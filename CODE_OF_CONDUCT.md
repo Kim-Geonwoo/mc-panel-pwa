@@ -1,5 +1,12 @@
 # Contributor Covenant Code of Conduct
 
+> [!IMPORTANT]
+> **이 저장소는 아카이브되어 커뮤니티 공간(이슈·PR·보안 권고)이 모두 닫혔습니다.**
+> 아래 신고 경로는 동작하지 않습니다.
+>
+> **This repository is archived; its community spaces (issues, PRs, security advisories)
+> are closed.** The reporting channels below are not operational.
+
 **한국어 요약** · English (normative) below
 
 ## 한국어 요약

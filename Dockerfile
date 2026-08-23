@@ -12,7 +12,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS api
+FROM golang:1.26-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468 AS api
 WORKDIR /src/api
 COPY api/go.mod api/go.sum ./
 RUN go mod download
@@ -20,7 +20,7 @@ COPY api/ ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mc_sv-panel .
 
 # CGO 없는 정적 바이너리 + 정적 자산만 필요하므로 distroless(비루트)로 최소화
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:b7bb25d9f7c31d2bdd1982feb4dafcaf137703c7075dbe2febb41c24212b946f
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /app
 COPY --from=api /out/mc_sv-panel /app/mc_sv-panel
 COPY --from=web /src/web/out /app/web/out

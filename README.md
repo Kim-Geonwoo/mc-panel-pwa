@@ -9,7 +9,19 @@
 [![Release](https://img.shields.io/github/v/release/Kim-Geonwoo/mc-panel-pwa)](https://github.com/Kim-Geonwoo/mc-panel-pwa/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> 개인이 취미로 만들고 유지보수하는 프로젝트입니다. 이슈·PR은 환영하지만 지원은 베스트에포트로 이뤄집니다.
+> [!IMPORTANT]
+> **이 저장소는 아카이브 상태이며 유지 관리가 중단되었습니다.**
+>
+> 개인이 취미로 만든 프로젝트이며, AI를 활용해 개발할 때 생기는 보안 문제를
+> 최소화하는 방법을 익히기 위한 연습 과제이기도 했습니다. 의존성 고정,
+> 취약점 점검(osv-scanner·Trivy), 비밀 스캔(gitleaks), 릴리스 서명과 빌드
+> 프로비넌스(cosign·SLSA), OpenSSF Scorecard·Best Practices 기준 충족을
+> 실제 공개 저장소에 적용해 검증하는 것이 목적이었습니다.
+>
+> 아카이브 기간에는 이슈와 풀 리퀘스트를 받지 않으며, 보안 신고에도 대응하지
+> 않습니다. 코드와 문서는 열람하고 포크할 수 있습니다.
+>
+> 시간이 확보되는 대로 개발을 재개할 예정입니다.
 
 마인크래프트 서버용 **인증형 설치 가능 PWA 대시보드**입니다. 실시간 접속 현황, 실시간
 성능 차트, 게임 ↔ 디스코드 ↔ 웹을 잇는 3방향 채팅에 더해, **서버 주도 UI(SDUI)** 기반의
@@ -74,7 +86,7 @@ Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 
 | 프런트엔드 | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
 | 백엔드 | Go (표준 라이브러리 + `modernc.org/sqlite` — **CGO 없는 순수 Go**) |
 | 서빙 | Go가 정적 익스포트(`output: 'export'`)를 서빙, HTTPS는 터널 경유 |
-| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
+| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Dependabot |
 
 ## 인증 모델
 
@@ -142,7 +154,7 @@ Go 바이너리가 정적 사이트와 API를 함께 서빙하므로, 배포는 
 ## 보안
 
 공급망과 코드 보안을 처음부터 끝까지 자동화했습니다 — CodeQL(SAST), OSV-Scanner + Trivy(SCA/IaC),
-gitleaks + GitHub 푸시 보호(시크릿), 그리고 릴리스 쿨다운과 CI 통과 게이트를 둔 Renovate 자동병합.
+gitleaks + GitHub 푸시 보호(시크릿), 그리고 Dependabot 보안 경고·자동 수정.
 자세한 내용과 취약점 신고: [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## 프로젝트 구조

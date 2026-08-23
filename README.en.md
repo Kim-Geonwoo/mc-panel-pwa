@@ -9,7 +9,20 @@
 [![Release](https://img.shields.io/github/v/release/Kim-Geonwoo/mc-panel-pwa)](https://github.com/Kim-Geonwoo/mc-panel-pwa/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> A personal project, built and maintained as a hobby. Issues and PRs are welcome, but support is best-effort.
+> [!IMPORTANT]
+> **This repository is archived and no longer maintained.**
+>
+> A personal hobby project that also served as an exercise in minimizing security
+> problems in AI-assisted development. Its purpose was to apply and verify, on a
+> real public repository, pinned dependencies, vulnerability scanning
+> (osv-scanner, Trivy), secret scanning (gitleaks), release signing and build
+> provenance (cosign, SLSA), and the OpenSSF Scorecard and Best Practices criteria.
+>
+> While archived, issues and pull requests are not accepted, and security reports
+> will not receive a response. The code and documentation remain available to read
+> and fork.
+>
+> Development is expected to resume when time allows.
 
 An **authenticated, installable PWA dashboard for a Minecraft server** — live
 player status, real-time performance charts, a three-way (game ↔ Discord ↔ web)
@@ -82,7 +95,7 @@ Status/perf are read from JSON files written by server-side KubeJS — and
 | Front end | Next.js (App Router) · TypeScript · Tailwind CSS · Framer Motion · uPlot · PWA |
 | Back end | Go (standard library + `modernc.org/sqlite` — **pure Go, no CGO**) |
 | Delivery | Static export (`output: 'export'`) served by Go; HTTPS via tunnel |
-| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Renovate |
+| CI/CD | GitHub Actions · CodeQL · OSV-Scanner · Trivy · gitleaks · Dependabot |
 
 ## Authentication model
 
@@ -153,7 +166,7 @@ sets `PANEL_DEMO=true` and can be hosted anywhere the static + Go artifact runs.
 
 Supply-chain and code security are automated end-to-end — CodeQL (SAST),
 OSV-Scanner + Trivy (SCA/IaC), gitleaks + GitHub push protection (secrets), and
-Renovate with a release cooldown and CI-gated auto-merge. Details and reporting:
+Dependabot security alerts and automated fixes. Details and reporting:
 [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## Project layout

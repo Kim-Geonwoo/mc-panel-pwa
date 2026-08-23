@@ -336,3 +336,52 @@ func TestRunHealthcheck(t *testing.T) {
 		t.Fatalf("up: got %d, want 0", got)
 	}
 }
+
+// TestClientIPRejectsNonIPHeader는 포워딩 헤더에 IP가 아닌 값이 오면 무시하는지 확인합니다.
+// 이 값은 레이트 리밋 맵의 키와 경보 메시지에 그대로 쓰이므로, 검증이 없으면 요청마다
+// 키를 바꿔 IP별 리미터를 무력화하거나 임의 문자열을 웹훅 본문에 밀어 넣을 수 있습니다.
+func TestClientIPRejectsNonIPHeader(t *testing.T) {
+	cases := []struct{ name, header, value string }{
+		{"cf 임의 문자열", "CF-Connecting-IP", "@everyone"},
+		{"cf 빈 값에 가까운 공백", "CF-Connecting-IP", "   "},
+		{"cf 호스트명", "CF-Connecting-IP", "evil.example.com"},
+		{"cf 과다 길이", "CF-Connecting-IP", strings.Repeat("A", 4096)},
+		{"xff 임의 문자열", "X-Forwarded-For", "not-an-ip"},
+		{"xff 첫 값이 비정상", "X-Forwarded-For", "bogus, 8.8.8.8"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = "127.0.0.1:9999"
+			r.Header.Set(c.header, c.value)
+			if got := clientIP(r); got != "127.0.0.1" {
+				t.Errorf("검증되지 않은 헤더 값이 채택됨: %q", got)
+			}
+		})
+	}
+	// 정상 IP는 그대로 채택되어야 합니다(회귀 방지).
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "127.0.0.1:9999"
+	r.Header.Set("CF-Connecting-IP", " 203.0.113.9 ")
+	if got := clientIP(r); got != "203.0.113.9" {
+		t.Errorf("정상 IP가 채택되지 않음: %q", got)
+	}
+}
+
+// TestIsLoopbackAddr는 헬스 리스너 주소가 루프백인지 판단하는 로직을 고정합니다.
+// 이 판단이 무인증 내부 API(/internal/*, PUT /api/layout)의 등록 여부를 가릅니다.
+func TestIsLoopbackAddr(t *testing.T) {
+	loopback := []string{"127.0.0.1:8099", "localhost:8099", "[::1]:8099", "127.5.5.5:1"}
+	for _, a := range loopback {
+		if !isLoopbackAddr(a) {
+			t.Errorf("루프백으로 판단해야 함: %q", a)
+		}
+	}
+	// 호스트가 비면 Go는 모든 인터페이스에 바인드하므로 루프백이 아닙니다.
+	notLoopback := []string{":8099", "0.0.0.0:8099", "[::]:8099", "192.168.0.10:8099", "example.com:8099", "", "8099"}
+	for _, a := range notLoopback {
+		if isLoopbackAddr(a) {
+			t.Errorf("루프백이 아니라고 판단해야 함: %q", a)
+		}
+	}
+}

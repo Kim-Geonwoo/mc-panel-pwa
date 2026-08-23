@@ -1,6 +1,12 @@
 # 데모 실행 키트 / Demo run kit
 
 > 공개 데모 / Public demo: <https://mc-panel-demo.geonwoo.dev> (code `000000`)
+>
+> 저장소가 아카이브되어 이 호스팅은 예고 없이 종료될 수 있습니다. 링크가 열리지 않으면
+> 아래 로컬 실행(`run-demo.sh` 또는 docker compose)을 이용하세요.
+>
+> The repository is archived and this hosting may be shut down without notice. If the link
+> does not work, use the local run instructions below (`run-demo.sh` or docker compose).
 
 **한국어** · English below
 
