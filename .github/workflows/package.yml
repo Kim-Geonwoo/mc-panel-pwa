@@ -21,7 +21,7 @@ jobs:
       packages: write # GHCR로 이미지 push
       id-token: write # cosign keyless 서명의 OIDC 증명
     steps:
-      # 액션은 커밋 SHA로 핀 고정(태그 재지정 공급망 공격 방어). Renovate가 갱신을 유지한다.
+      # 액션은 커밋 SHA로 핀 고정(태그 재지정 공급망 공격 방어). 갱신은 수동으로 한다.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false

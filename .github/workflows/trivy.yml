@@ -32,7 +32,7 @@ jobs:
           output: trivy.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "0" # 발견 항목은 리포트하되 빌드를 막지 않는다(Renovate가 갱신을 담당)
+          exit-code: "0" # 발견 항목은 리포트하되 빌드를 막지 않는다(갱신은 Dependabot 담당)
       - name: SARIF 업로드
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4
         with:
