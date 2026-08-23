@@ -9,7 +9,19 @@
 [![Release](https://img.shields.io/github/v/release/Kim-Geonwoo/mc-panel-pwa)](https://github.com/Kim-Geonwoo/mc-panel-pwa/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> 개인이 취미로 만들고 유지보수하는 프로젝트입니다. 이슈·PR은 환영하지만 지원은 베스트에포트로 이뤄집니다.
+> [!IMPORTANT]
+> **이 저장소는 아카이브 상태이며 유지 관리가 중단되었습니다.**
+>
+> 개인이 취미로 만든 프로젝트이며, AI를 활용해 개발할 때 생기는 보안 문제를
+> 최소화하는 방법을 익히기 위한 연습 과제이기도 했습니다. 의존성 고정,
+> 취약점 점검(osv-scanner·Trivy), 비밀 스캔(gitleaks), 릴리스 서명과 빌드
+> 프로비넌스(cosign·SLSA), OpenSSF Scorecard·Best Practices 기준 충족을
+> 실제 공개 저장소에 적용해 검증하는 것이 목적이었습니다.
+>
+> 아카이브 기간에는 이슈와 풀 리퀘스트를 받지 않으며, 보안 신고에도 대응하지
+> 않습니다. 코드와 문서는 열람하고 포크할 수 있습니다.
+>
+> 시간이 확보되는 대로 개발을 재개할 예정입니다.
 
 마인크래프트 서버용 **인증형 설치 가능 PWA 대시보드**입니다. 실시간 접속 현황, 실시간
 성능 차트, 게임 ↔ 디스코드 ↔ 웹을 잇는 3방향 채팅에 더해, **서버 주도 UI(SDUI)** 기반의
