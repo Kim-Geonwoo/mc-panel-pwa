@@ -88,7 +88,13 @@ func (a *alerter) send(msg string) {
 		return
 	}
 	go func() {
-		body, _ := json.Marshal(map[string]string{"content": msg})
+		// allowed_mentions를 비워 @everyone·@here·역할 멘션이 발동하지 않게 합니다.
+		// 메시지에는 요청 헤더에서 온 IP 문자열이 들어가므로, 값이 검증을 통과하더라도
+		// 페이로드 자체가 멘션을 막아 두는 편이 안전합니다.
+		body, _ := json.Marshal(map[string]any{
+			"content":          msg,
+			"allowed_mentions": map[string][]string{"parse": {}},
+		})
 		resp, err := a.client.Post(a.webhook, "application/json", bytes.NewReader(body))
 		if err != nil {
 			log.Printf("alert webhook failed: %v", err)
