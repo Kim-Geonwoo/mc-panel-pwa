@@ -352,6 +352,22 @@ export default function SettingsSheet({
         <button
           type="button"
           onClick={async () => {
+            // 로그아웃 전에 이 기기의 푸시 구독을 해지한다. 구독은 endpoint가 키라
+            // 세션과 묶여 있지 않고, 발송부는 세션 유효성을 보지 않는다. 해지하지
+            // 않으면 로그아웃한 기기가 계속 알림을 받고, 앱에서 끌 방법이 없다.
+            // 해지 실패가 로그아웃을 막아서는 안 되므로 조용히 넘어간다.
+            if (subscribed) {
+              try {
+                const reg = await navigator.serviceWorker.ready;
+                const cur = await reg.pushManager.getSubscription();
+                if (cur) {
+                  await unsubscribePush(cur.endpoint);
+                  await cur.unsubscribe();
+                }
+              } catch {
+                /* 미지원·권한 거부·네트워크 실패 — 로그아웃은 계속 진행한다 */
+              }
+            }
             await logout();
             onLogout();
           }}
