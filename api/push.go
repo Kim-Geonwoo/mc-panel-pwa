@@ -23,7 +23,15 @@ type vapidKeys struct {
 
 // pushHTTP는 푸시 발송에 재사용하는 단일 HTTP 클라이언트입니다. 타임아웃이 없으면
 // 응답 없는 푸시 엔드포인트 하나가 직렬 발송 루프를 무한정 붙잡을 수 있습니다.
-var pushHTTP = &http.Client{Timeout: 10 * time.Second}
+// 리다이렉트를 따라가지 않습니다. 구독 등록 시 https 접두사만 검사하므로(handlePushSubscribe),
+// 공격자가 자기 https 호스트에서 302를 주면 http 스킴 검사를 우회해 서버가 임의 주소로
+// 요청을 보내게 됩니다(블라인드 SSRF). 웹푸시 서비스는 리다이렉트를 쓰지 않습니다.
+var pushHTTP = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
 
 // loadOrCreateVAPID는 저장된 키를 읽고, 없으면 새로 생성해 원자적으로 기록합니다.
 func loadOrCreateVAPID(path string) (vapidKeys, error) {
