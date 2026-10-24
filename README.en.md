@@ -55,8 +55,9 @@ Next.js front end served by a single, dependency-free Go binary.
   the panel. Draft autosave, undo/redo, pre-publish schema/limit checks. Admin login via
   `PANEL_ADMIN_CODE`.
 - **PWA** — installable, offline app shell via a service worker; light/dark.
-- **Hardened** — loopback-bound API behind a tunnel, server-side sessions,
-  per-IP/-session rate limiting, input sanitization, strict security headers.
+- **Hardened** — loopback/unix-socket-bound API behind a tunnel, server-side sessions,
+  per-IP/-session rate limiting, a shared-secret internal API, input sanitization,
+  strict security headers.
 
 ## Architecture
 
@@ -77,7 +78,7 @@ flowchart LR
   PWA -- "HTTPS (same origin)" --> Static
   PWA -- "Bearer session" --> API
   API --- DB
-  Bot -- "POST /internal/ingest (loopback)" --> Health
+  Bot -- "POST /internal/ingest (loopback + shared secret)" --> Health
   KubeJS -- "status/perf JSON" --> API
   API -- "web_outbox/*.json" --> Bot
 ```
@@ -85,6 +86,9 @@ flowchart LR
 The Go API is the chat hub. Chat and timeline records live in SQLite
 (`panel.db`); the bot is a pure bridge that forwards game/Discord events over a
 loopback internal API (falling back to JSON files, which an importer picks up).
+The internal API does not trust loopback by itself: it requires a secret shared
+with the bot (`PANEL_INTERNAL_TOKEN_FILE`) as `Authorization: Bearer`, and
+answers 503 when no secret is configured.
 Status/perf are read from JSON files written by server-side KubeJS — and
 [demo mode](#run-locally) replaces all of these integrations with sample data.
 
@@ -120,10 +124,10 @@ Status/perf are read from JSON files written by server-side KubeJS — and
 | GET/POST | `/api/chat` | Bearer | Read the merged feed (`since` forward poll · `before` history) / post a web message (returns `{id,ts}` on store) |
 | GET | `/api/timeline` | Bearer | Join/leave events for the timeline tab |
 | GET | `/api/layout` | — | Per-server page composition (layout JSON). Falls back to the bundled default when the file is missing or corrupt |
-| PUT | `/api/layout` | Bearer (admin) | Publish a layout — schema-validated, 10 writes/min per session, audit-logged. 403 in demo mode. Also available unauthenticated on the loopback listener (tooling) |
+| PUT | `/api/layout` | Bearer (admin) | Publish a layout — schema-validated, 10 writes/min per session, audit-logged. 403 in demo mode. On the loopback listener it takes the internal-API shared secret instead of an admin session (tooling) |
 | GET/POST | `/api/push/config` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | Web push (VAPID): config (key + server-enabled kinds via `PANEL_PUSH_EVENTS`), subscribe (per-kind `topics`), unsubscribe — server down/up + join alerts. iOS needs 16.4+ home-screen install |
 | GET | `/healthz` | — | Loopback-only liveness probe (uptime monitoring) |
-| * | `/internal/*` | loopback | Bot-only internal API (ingest, session list/revoke) — never on the exposed listener |
+| * | `/internal/*` | loopback + shared secret | Bot-only internal API (ingest, session list/revoke) — never on the exposed listener; 503 when no secret is set |
 
 ## Run locally
 
@@ -159,7 +163,10 @@ All configuration is environment-driven; see [`.env.example`](.env.example).
 ```
 
 The Go binary serves both the static site and the API, so deployment is a single
-process behind any HTTPS reverse proxy or tunnel. A **demo build/branch** simply
+process behind any HTTPS reverse proxy or tunnel. Forwarding headers (used as the
+rate-limit client IP) are trusted only on a unix socket (`PANEL_LISTEN=unix:/path`)
+or from TCP proxies listed in `PANEL_TRUSTED_PROXIES`, so connect a tunnel such as
+cloudflared over a unix socket. A **demo build/branch** simply
 sets `PANEL_DEMO=true` and can be hosted anywhere the static + Go artifact runs.
 
 ## Security

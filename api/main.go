@@ -30,6 +30,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -68,6 +69,9 @@ type config struct {
 	demo         bool
 	pushEvents   []string // 활성화된 웹 푸시 알림 종류(서버 권위). 빈 목록이면 푸시 전체 비활성
 	maintMarker  string   // 정기 점검 마커 파일 경로. 존재·신선하면 점검 중 다운 알림을 억제
+
+	internalToken  string         // 내부 API 공유 비밀. 빈값이면 내부 API가 503으로 닫힘
+	trustedProxies []netip.Prefix // 포워딩 헤더를 믿을 TCP 피어. 비면 TCP에서는 헤더를 믿지 않음
 
 	timelineRetentionDays int
 	codeRotateSec         int
@@ -145,6 +149,15 @@ func getenvBool(k string, def bool) bool {
 //
 //	터널(cloudflared) 뒤에서 쓰는 위협 모델을 그대로 반영합니다. 모든 인터페이스에서
 //	받아야 하면 ":8080"처럼 호스트를 비워 명시적으로 설정하세요.
+//	"unix:/절대/경로"를 주면 unix 소켓(0600)으로 받습니다. 포워딩 헤더(CF-Connecting-IP,
+//	X-Forwarded-For)는 이 unix 소켓으로 들어온 요청에서만 믿으므로, cloudflared 같은
+//	앞단 프록시는 unix 소켓으로 붙이는 것을 권장합니다(예: unix:/run/user/1000/mc-panel/panel.sock).
+
+// trustedProxies: 포워딩 헤더를 믿을 TCP 피어(PANEL_TRUSTED_PROXIES, 쉼표로 나눈 IP·CIDR).
+//
+//	기본값은 비어 있어 TCP로 들어온 요청은 루프백이라도 헤더를 믿지 않습니다. TCP 프록시
+//	뒤에서만 쓸 수 있다면 그 프록시 주소를 적으세요. 그 프록시는 클라이언트가 보낸
+//	CF-Connecting-IP를 지우거나 덮어써야 합니다.
 
 // 각종 JSON 파일 위치 지정
 
@@ -212,6 +225,11 @@ func getenvBool(k string, def bool) bool {
 //	2분 이상 이어질 때만 문제로 승격해 알립니다. 남겨진 오래된 마커(30분 초과)는 점검이
 //	아닌 것으로 간주해 알림을 영구히 억제하지 않습니다(stale-marker 가드).
 
+// internalToken: 내부 API(/internal/*, 헬스 리스너의 PUT /api/layout) 공유 비밀.
+//
+//	PANEL_INTERNAL_TOKEN_FILE(0600 파일, 권장) 또는 PANEL_INTERNAL_TOKEN 중 하나로 주고,
+//	32자 이상이어야 합니다. 없거나 잘못되면 내부 API는 503으로 닫힙니다.
+
 // demo: 데모 모드 활성화 여부 (예: true/false)
 func loadConfig() config {
 	br := getenv("PANEL_BRIDGE_DIR", "./data")
@@ -243,9 +261,23 @@ func loadConfig() config {
 		pushEvents:   parsePushEvents(getenv("PANEL_PUSH_EVENTS", "server,join")),
 		maintMarker:  getenv("PANEL_MAINT_MARKER", filepath.Join(br, ".maintenance")),
 
+		internalToken:  internalTokenOrClosed(),
+		trustedProxies: parseTrustedProxies(getenv("PANEL_TRUSTED_PROXIES", "")),
+
 		timelineRetentionDays: getenvInt("PANEL_TIMELINE_RETENTION_DAYS", 90),
 		codeRotateSec:         getenvInt("PANEL_CODE_ROTATE_SEC", 21600),
 	}
+}
+
+// internalTokenOrClosed는 공유 비밀을 읽고, 설정이 잘못됐으면 이유를 남긴 뒤 빈값(닫힘)을
+// 돌려줍니다. 공개 패널까지 멈추지 않도록 기동은 계속합니다.
+func internalTokenOrClosed() string {
+	tok, err := loadInternalToken()
+	if err != nil {
+		log.Printf("내부 API 공유 비밀 설정 오류 — 내부 API를 닫습니다: %v", err)
+		return ""
+	}
+	return tok
 }
 
 // ------------------------------------------------------------------ 세션 스토어
@@ -540,38 +572,146 @@ func isLoopbackAddr(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// clientIP는 클라이언트의 IP 주소를 반환합니다. (보안 상, 로컬에서 들어오는 요청만 포워딩 헤더를 신뢰합니다)
-func clientIP(r *http.Request) string {
+// listen은 PANEL_LISTEN 값으로 리스너를 엽니다. "unix:/절대/경로"면 unix 소켓을, 아니면
+// TCP("host:port")를 엽니다.
+//
+// unix 소켓은 앞단 프록시(cloudflared) 전용 입구입니다. 이 리스너로 들어온 요청만 포워딩
+// 헤더를 믿으므로(clientIP), 접속할 수 있는 계정을 파일 권한으로 묶습니다. 소켓은 0600으로
+// 두고, 상위 디렉터리도 0700(systemd RuntimeDirectory 등)이라고 전제합니다. 비정상 종료로
+// 남은 소켓 파일은 지우고 다시 열지만, 소켓이 아닌 파일은 건드리지 않습니다.
+func listen(addr string) (net.Listener, error) {
+	path, ok := strings.CutPrefix(addr, "unix:")
+	if !ok {
+		return net.Listen("tcp", addr)
+	}
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("unix 소켓 경로는 절대 경로여야 합니다: %q", path)
+	}
+	if fi, err := os.Lstat(path); err == nil {
+		if fi.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("%s가 이미 있고 소켓이 아닙니다", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	return ln, nil
+}
+
+// proxyConnKey는 unix 소켓 리스너로 들어온 연결을 표시하는 컨텍스트 키입니다.
+type proxyConnKey struct{}
+
+// proxyConnContext는 http.Server.ConnContext로 씁니다. unix 소켓으로 들어온 연결에만 표시를
+// 남깁니다. 소켓 권한이 접속 계정을 패널과 같은 계정으로 묶으므로(listen), 이 연결은 앞단
+// 프록시에서 온 것으로 봅니다.
+func proxyConnContext(ctx context.Context, c net.Conn) context.Context {
+	if _, ok := c.(*net.UnixConn); ok {
+		return context.WithValue(ctx, proxyConnKey{}, true)
+	}
+	return ctx
+}
+
+// parseTrustedProxies는 PANEL_TRUSTED_PROXIES(쉼표로 나눈 IP·CIDR)를 읽습니다.
+// IP나 CIDR이 아닌 항목은 로그를 남기고 건너뜁니다.
+func parseTrustedProxies(v string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, tok := range strings.Split(v, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(tok); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		if a, err := netip.ParseAddr(tok); err == nil {
+			a = a.WithZone("")
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			continue
+		}
+		log.Printf("PANEL_TRUSTED_PROXIES: %q는 IP나 CIDR이 아니라 건너뜁니다", tok)
+	}
+	return out
+}
+
+// trustedPeer는 TCP 피어 주소가 PANEL_TRUSTED_PROXIES에 드는지 봅니다.
+func (s *server) trustedPeer(host string) bool {
+	if len(s.cfg.trustedProxies) == 0 {
+		return false
+	}
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range s.cfg.trustedProxies {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIP는 레이트 리밋 키와 경보 메시지에 쓸 클라이언트 IP를 돌려줍니다.
+//
+// 포워딩 헤더(CF-Connecting-IP, X-Forwarded-For)는 앞단 프록시가 붙인 것이 확실할 때만
+// 믿습니다. 그런 경우는 둘뿐입니다.
+//   - unix 소켓 리스너(PANEL_LISTEN=unix:/경로)로 들어온 연결 — cloudflared 전용 입구
+//   - TCP 피어가 PANEL_TRUSTED_PROXIES에 든 경우 — 운영자가 명시적으로 고른 프록시
+//
+// 예전에는 "피어가 루프백이면 cloudflared"라고 보고 헤더를 믿었습니다. 하지만 같은 호스트의
+// 다른 계정이나 들어온 연결을 127.0.0.1로 넘겨 주는 프로세스(userspace 모드 tailscaled 등)도
+// 루프백에서 들어오므로, IP를 위조해 IP별 리미터를 피할 수 있었습니다.
+func (s *server) clientIP(r *http.Request) string {
 	host := r.RemoteAddr
 	if c := strings.LastIndexByte(host, ':'); c >= 0 {
 		host = host[:c]
 	}
 	host = strings.Trim(host, "[]")
-	// 포워딩 헤더(CF-Connecting-IP, X-Forwarded-For)는 요청이 루프백에서 도는 프록시를
-	// 거쳐 들어왔을 때에만 믿습니다.
-	//
-	// 다만 루프백 피어라는 사실만으로는 위조를 막지 못합니다. 이 프로젝트의 표준 배치가
-	// "프록시 → 루프백 → Go"라서 인터넷에서 온 요청도 피어가 127.0.0.1이기 때문입니다.
-	// 앞단이 헤더를 덮어쓰지 않는 구성이라면 클라이언트가 값을 그대로 심을 수 있습니다.
-	// 그래서 값이 실제 IP 주소일 때만 채택합니다. 이 값은 레이트 리밋 키와 경보 메시지에
-	// 쓰이므로, 검증이 없으면 요청마다 키를 바꿔 IP별 리미터를 무력화하거나 임의 문자열을
-	// 리미터 맵과 웹훅 본문에 밀어 넣을 수 있습니다.
-	if host == "127.0.0.1" || host == "::1" {
-		if v := r.Header.Get("CF-Connecting-IP"); v != "" {
-			if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-				return ip.String()
-			}
-		}
-		if v := r.Header.Get("X-Forwarded-For"); v != "" {
-			if c := strings.IndexByte(v, ','); c >= 0 {
-				v = v[:c]
-			}
-			if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
-				return ip.String()
-			}
-		}
+	viaUnix, _ := r.Context().Value(proxyConnKey{}).(bool)
+	if !viaUnix && !s.trustedPeer(host) {
+		return host
+	}
+	if ip := forwardedIP(r); ip != "" {
+		return ip
+	}
+	if viaUnix {
+		return "unix" // unix 소켓 피어에는 IP가 없습니다
 	}
 	return host
+}
+
+// forwardedIP는 앞단 프록시가 붙인 클라이언트 IP를 헤더에서 꺼냅니다. CF-Connecting-IP를
+// 먼저 보고, 없으면 X-Forwarded-For의 마지막 값을 씁니다. 프록시는 값을 뒤에 덧붙이므로
+// 앞쪽 값은 클라이언트가 보낸 그대로일 수 있어 믿지 않습니다.
+//
+// 값이 실제 IP일 때만 채택합니다. 이 값은 레이트 리밋 키와 경보 메시지에 쓰이므로, 검증이
+// 없으면 요청마다 키를 바꿔 IP별 리미터를 무력화하거나 임의 문자열을 리미터 맵과 웹훅 본문에
+// 밀어 넣을 수 있습니다. IP가 없으면 빈값입니다.
+func forwardedIP(r *http.Request) string {
+	if v := r.Header.Get("CF-Connecting-IP"); v != "" {
+		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+			return ip.String()
+		}
+	}
+	if vs := r.Header.Values("X-Forwarded-For"); len(vs) > 0 {
+		v := vs[len(vs)-1]
+		if c := strings.LastIndexByte(v, ','); c >= 0 {
+			v = v[c+1:]
+		}
+		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+			return ip.String()
+		}
+	}
+	return ""
 }
 
 // sanitizeText는 사용자가 입력한 텍스트에서 위험하거나 지저분한 문자를 걷어 냅니다.
@@ -758,7 +898,7 @@ func (s *server) apiAuthed(methods string, h func(w http.ResponseWriter, r *http
 
 // 로그인 요청을 처리하는 함수 (공통 체인: s.api("POST"))
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	// IP별 로그인 시도 횟수 제한 및 서버 전체 로그인 시도 제한
 	// (전역 리미터 포화는 IP를 바꿔 가며 시도하는 공격 신호라 경보 범위를 구분합니다)
 	if !s.loginRL.allow(ip) {
@@ -1238,6 +1378,32 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// healthMux는 헬스 리스너의 경로를 구성합니다. /healthz는 무인증이고, 내부 API(봇·로컬 관리
+// 전용)는 리스너가 실제로 루프백에 묶였을 때에만 등록하며 공유 비밀을 요구합니다(internal.go).
+//
+// 루프백 검사는 공유 비밀과 별개인 이중 방어입니다. Go에서 ":8099"는 0.0.0.0 전체 바인드라
+// 오타 한 글자로 내부 API가 인터넷에 열릴 수 있기 때문입니다.
+func (s *server) healthMux(haddr string) *http.ServeMux {
+	hmux := http.NewServeMux()
+	hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	if !isLoopbackAddr(haddr) {
+		log.Printf("health listener %q is not loopback — 내부 API(/internal/*, PUT /api/layout)를 등록하지 않습니다", haddr)
+		return hmux
+	}
+	if s.cfg.internalToken == "" {
+		log.Printf("내부 API 공유 비밀(PANEL_INTERNAL_TOKEN_FILE)이 없어 /internal/*, PUT /api/layout을 503으로 닫습니다")
+	}
+	hmux.HandleFunc("/internal/ingest", s.internalAuth(s.handleInternalIngest))
+	hmux.HandleFunc("/internal/sessions", s.internalAuth(s.handleInternalSessions))
+	hmux.HandleFunc("/internal/revoke", s.internalAuth(s.handleInternalRevoke))
+	hmux.HandleFunc("/api/layout", s.internalAuth(s.handleLayoutPut)) // 로컬 관리용 레이아웃 편집
+	return hmux
+}
+
 // ------------------------------------------------------------------ main
 func main() {
 	// 컨테이너 HEALTHCHECK 모드 — 서버 기동 없이 헬스 조회만 하고 종료 (healthcheck.go)
@@ -1282,31 +1448,10 @@ func main() {
 	// /healthz 경로에 GET 요청을 보내면 200 OK를 반환하는 헬스 체크용 리스너를 별도로 띄웁니다.
 	// uptimerobot 사용중.
 	go func() {
-		hmux := http.NewServeMux()
-		hmux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("ok\n"))
-		})
-		// 내부 API(봇 전용) — 인증이 없으므로 리스너가 실제로 루프백에 묶였을 때에만
-		// 등록합니다. internal.go 참고.
-		//
-		// 이전에는 "PANEL_HEALTH_LISTEN을 루프백으로 두라"는 문서 지시가 유일한 방어였는데,
-		// 설정값 하나가 무인증 엔드포인트를 인터넷에 여는 구조는 안전하지 않습니다.
-		// Go에서 ":8099"는 0.0.0.0 전체 바인드라 오타 한 글자로도 그렇게 됩니다.
-		// 기본값(127.0.0.1:8099)에서는 동작이 이전과 완전히 같습니다.
 		haddr := getenv("PANEL_HEALTH_LISTEN", "127.0.0.1:8099")
-		if isLoopbackAddr(haddr) {
-			hmux.HandleFunc("/internal/ingest", s.handleInternalIngest)
-			hmux.HandleFunc("/internal/sessions", s.handleInternalSessions)
-			hmux.HandleFunc("/internal/revoke", s.handleInternalRevoke)
-			hmux.HandleFunc("/api/layout", s.handleLayoutPut) // 루프백 전용 레이아웃 편집
-		} else {
-			log.Printf("health listener %q is not loopback — 내부 API(/internal/*, PUT /api/layout)를 등록하지 않습니다", haddr)
-		}
 		hsrv := &http.Server{
 			Addr:              haddr,
-			Handler:           hmux,
+			Handler:           s.healthMux(haddr),
 			ReadHeaderTimeout: 5 * time.Second,  // 요청 헤더를 읽는 시간 제한
 			ReadTimeout:       10 * time.Second, // 요청 본문을 읽는 시간 제한
 			WriteTimeout:      10 * time.Second, // 응답을 쓰는 시간 제한
@@ -1350,9 +1495,10 @@ func main() {
 	mux.HandleFunc("/", s.static)
 
 	// ----------------------------------------------------------------- 서버 시작
+	// 리스너는 아래에서 listen(cfg.listen)으로 엽니다(TCP 또는 unix 소켓).
 	srv := &http.Server{
-		Addr:              cfg.listen,           // 서버가 바인딩할 주소와 포트
 		Handler:           securityHeaders(mux), // 보안 헤더를 설정하는 미들웨어를 적용합니다
+		ConnContext:       proxyConnContext,     // unix 소켓 연결 표시(포워딩 헤더 신뢰 판단, clientIP)
 		ReadHeaderTimeout: 10 * time.Second,     // 요청 헤더를 읽는 시간 제한
 		ReadTimeout:       20 * time.Second,     // 요청 본문을 읽는 시간 제한
 		WriteTimeout:      30 * time.Second,     // 응답을 쓰는 시간 제한
@@ -1377,8 +1523,20 @@ func main() {
 	}()
 
 	// 메인 리스너를 시작하고, 오류가 발생하면 로그에 기록합니다. (http.ErrServerClosed는 정상 종료이므로 무시)
+	ln, err := listen(cfg.listen)
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Printf("mc_sv-panel listening on %s (static=%s)", cfg.listen, cfg.staticDir)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	switch {
+	case strings.HasPrefix(cfg.listen, "unix:"):
+		log.Printf("forwarding headers: trusted on this unix socket only")
+	case len(cfg.trustedProxies) > 0:
+		log.Printf("forwarding headers: trusted from PANEL_TRUSTED_PROXIES %v", cfg.trustedProxies)
+	default:
+		log.Printf("forwarding headers: not trusted (TCP peer address is used as client IP)")
+	}
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 	log.Printf("mc_sv-panel shutdown complete")

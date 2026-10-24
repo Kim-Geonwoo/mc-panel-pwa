@@ -113,14 +113,28 @@ func TestLoadConfigDefaultsAndOverride(t *testing.T) {
 	if cfg.sessionSec != int64(2*24*3600) {
 		t.Fatalf("default sessionSec = %d", cfg.sessionSec)
 	}
+	// 기본값에서는 내부 API가 닫히고(공유 비밀 없음) TCP 포워딩 헤더를 믿지 않습니다.
+	if cfg.internalToken != "" || len(cfg.trustedProxies) != 0 {
+		t.Fatalf("default internalToken set=%v trustedProxies=%v", cfg.internalToken != "", cfg.trustedProxies)
+	}
 	// override
 	t.Setenv("PANEL_LISTEN", "0.0.0.0:9000")
 	t.Setenv("PANEL_MAX_PLAYERS", "99")
 	t.Setenv("PANEL_DEMO", "true")
 	t.Setenv("PANEL_ALLOW_ORIGIN", "https://panel.example")
+	t.Setenv("PANEL_INTERNAL_TOKEN", testInternalToken)
+	t.Setenv("PANEL_TRUSTED_PROXIES", "127.0.0.1")
 	cfg = loadConfig()
 	if cfg.listen != "0.0.0.0:9000" || cfg.maxPlayers != 99 || !cfg.demo || cfg.allowOrigin != "https://panel.example" {
 		t.Fatalf("override failed: %+v", cfg)
+	}
+	if cfg.internalToken != testInternalToken || len(cfg.trustedProxies) != 1 {
+		t.Fatalf("internalToken set=%v trustedProxies=%v", cfg.internalToken != "", cfg.trustedProxies)
+	}
+	// 공유 비밀 설정이 잘못되면 기동은 계속하되 내부 API는 닫힙니다.
+	t.Setenv("PANEL_INTERNAL_TOKEN", "short")
+	if cfg = loadConfig(); cfg.internalToken != "" {
+		t.Fatal("잘못된 공유 비밀이 채택됨")
 	}
 }
 

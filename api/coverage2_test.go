@@ -244,10 +244,10 @@ func TestSessionListSkipsExpired(t *testing.T) {
 // ------------------------------------------------------------------ clientIP
 
 func TestClientIPXFFNoComma(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.RemoteAddr = "127.0.0.1:1"               // 루프백(cloudflared)이면 XFF 신뢰
-	r.Header.Set("X-Forwarded-For", "7.7.7.7") // 쉼표 없는 단일 값
-	if got := clientIP(r); got != "7.7.7.7" {
+	s := &server{}
+	r := viaUnixSocket(httptest.NewRequest(http.MethodGet, "/", nil)) // unix 소켓(cloudflared)이면 XFF 신뢰
+	r.Header.Set("X-Forwarded-For", "7.7.7.7")                        // 쉼표 없는 단일 값
+	if got := s.clientIP(r); got != "7.7.7.7" {
 		t.Fatalf("single-value XFF: got %q, want 7.7.7.7", got)
 	}
 }
