@@ -20,7 +20,7 @@
 ## 2. 신뢰 경계와 위협 모델
 
 ```
-[브라우저(PWA)] --TLS1.3--> [리버스 프록시] --루프백--> [Go API :127.0.0.1]
+[브라우저(PWA)] --TLS1.3--> [리버스 프록시] --unix 소켓/루프백--> [Go API]
                                                           |--루프백--> [MC 서버 RCON]
                                                           |--TLS--> [Discord 웹훅 / Web Push]
 ```
@@ -50,8 +50,10 @@
   강도는 낮다.
 - **R4 (비밀 관리)**: 런타임 비밀은 저장소 밖 설정 파일(0600)에만 존재한다. 저장소는
   gitleaks(CI)·GitHub 시크릿 스캐닝·푸시 보호로 상시 감시된다.
-- **R5 (전송 보호)**: 공개 구간은 TLS 1.3(HSTS 2년)이고, API는 루프백에만 바인딩되어
-  프록시 뒤에서만 도달 가능하다. RCON은 루프백 전용이다. 외부로 나가는 호출(웹훅·
+- **R5 (전송 보호)**: 공개 구간은 TLS 1.3(HSTS 2년)이고, API는 unix 소켓(0600)이나
+  루프백에만 바인딩되어 프록시 뒤에서만 도달 가능하다. 루프백은 같은 호스트의 다른 계정도
+  닿으므로 신뢰 근거로 쓰지 않는다. 포워딩 헤더는 unix 소켓이나 명시한 프록시에서만 믿고,
+  내부 API는 봇과 공유하는 비밀을 요구한다. RCON은 루프백 전용이다. 외부로 나가는 호출(웹훅·
   푸시)은 TLS이며 인증서 검증을 우회하지 않는다(`InsecureSkipVerify` 부재 확인).
   Web Push는 RFC 8291(ECDH P-256 + HKDF-SHA-256)을 표준 라이브러리로 사용한다.
 - **R6 (공급망)**: 의존성은 락파일·digest로 고정되고, CodeQL·Trivy·
@@ -97,7 +99,7 @@ It complements the operational policy in [SECURITY.md](../.github/SECURITY.md).
 
 ### 2. Trust boundaries and threat model
 
-Browser (PWA) → TLS 1.3 → reverse proxy → loopback → Go API (127.0.0.1), which
+Browser (PWA) → TLS 1.3 → reverse proxy → unix socket/loopback → Go API, which
 talks to the Minecraft server over loopback RCON and to Discord webhooks / Web
 Push over TLS. Principal threats: credential guessing and brute force (R1, R2),
 session theft (R2), control-character/command injection and XSS via chat (R3),
@@ -128,8 +130,11 @@ malicious dependencies or image tampering (R6).
   repository (mode 0600). The repository is continuously watched by gitleaks
   (CI) and GitHub secret scanning with push protection.
 - **R5 (transport)**: the public edge is TLS 1.3 with two-year HSTS; the API
-  binds to loopback only, reachable solely through the proxy. RCON is
-  loopback-only. Outbound calls (webhooks, push) use TLS with default
+  binds to a unix socket (0600) or loopback only, reachable solely through the
+  proxy. Loopback is not treated as a trust signal, since other accounts on the
+  host can reach it: forwarding headers are trusted only on the unix socket or
+  from listed proxies, and the internal API requires a secret shared with the
+  bot. RCON is loopback-only. Outbound calls (webhooks, push) use TLS with default
   certificate verification (no `InsecureSkipVerify` anywhere). Web Push follows
   RFC 8291 (ECDH P-256 + HKDF-SHA-256) via standard libraries.
 - **R6 (supply chain)**: dependencies are pinned via lockfiles and image

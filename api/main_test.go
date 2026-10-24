@@ -4,12 +4,15 @@ package main
 // 세션 취소·미들웨어 체인·로그인 흐름·경로 순회 차단이 회귀하지 않도록 고정합니다.
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -101,32 +104,181 @@ func TestRateLimiter(t *testing.T) {
 	}
 }
 
+// viaUnixSocket은 요청이 unix 소켓 리스너로 들어온 것처럼 표시합니다(proxyConnContext와 같은 효과).
+func viaUnixSocket(r *http.Request) *http.Request {
+	return r.WithContext(proxyConnContext(r.Context(), &net.UnixConn{}))
+}
+
 func TestClientIP(t *testing.T) {
+	s := &server{}
 	// 외부에서 직접 들어온 요청은 포워딩 헤더를 신뢰하지 않아야 합니다
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "203.0.113.5:1234"
 	r.Header.Set("CF-Connecting-IP", "8.8.8.8")
 	r.Header.Set("X-Forwarded-For", "9.9.9.9")
-	if got := clientIP(r); got != "203.0.113.5" {
+	if got := s.clientIP(r); got != "203.0.113.5" {
 		t.Errorf("external request trusted forwarded header: %q", got)
 	}
-	// 루프백(cloudflared 경유)에서는 CF-Connecting-IP를 신뢰합니다
+	// 루프백 TCP라는 사실만으로는 믿지 않습니다. 같은 호스트의 다른 계정이나 루프백으로
+	// 연결을 넘겨 주는 프로세스(userspace tailscaled 등)도 127.0.0.1에서 들어옵니다.
 	r.RemoteAddr = "127.0.0.1:9999"
-	if got := clientIP(r); got != "8.8.8.8" {
-		t.Errorf("loopback should trust CF-Connecting-IP: %q", got)
+	if got := s.clientIP(r); got != "127.0.0.1" {
+		t.Errorf("loopback TCP must not trust forwarded headers: %q", got)
 	}
-	// CF 헤더가 없으면 X-Forwarded-For의 첫 값
-	r.Header.Del("CF-Connecting-IP")
-	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
-	if got := clientIP(r); got != "1.2.3.4" {
-		t.Errorf("XFF first value expected: %q", got)
+	// unix 소켓 리스너(cloudflared 전용)로 들어온 요청은 CF-Connecting-IP를 신뢰합니다
+	u := viaUnixSocket(r)
+	u.RemoteAddr = "@"
+	if got := s.clientIP(u); got != "8.8.8.8" {
+		t.Errorf("unix socket should trust CF-Connecting-IP: %q", got)
+	}
+	// CF 헤더가 없으면 X-Forwarded-For의 마지막 값(바로 앞 프록시가 붙인 값). 앞쪽 값은
+	// 클라이언트가 보낸 그대로 남으므로 믿지 않습니다.
+	u.Header.Del("CF-Connecting-IP")
+	u.Header.Set("X-Forwarded-For", "1.2.3.4, 9.9.9.9, 5.6.7.8")
+	if got := s.clientIP(u); got != "5.6.7.8" {
+		t.Errorf("XFF last value expected: %q", got)
+	}
+	// 헤더가 없으면 unix 소켓 요청은 고정 키로 묶입니다
+	u.Header.Del("X-Forwarded-For")
+	if got := s.clientIP(u); got != "unix" {
+		t.Errorf("unix socket without headers: %q", got)
 	}
 	// IPv6 괄호 제거
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r2.RemoteAddr = "[2001:db8::1]:443"
-	if got := clientIP(r2); got != "2001:db8::1" {
+	if got := s.clientIP(r2); got != "2001:db8::1" {
 		t.Errorf("ipv6 host expected: %q", got)
 	}
+}
+
+// TestClientIPTrustedProxies는 PANEL_TRUSTED_PROXIES에 든 TCP 피어만 포워딩 헤더를
+// 믿는지 확인합니다. TCP 프록시(nginx 등) 뒤에서 쓰는 배치를 위한 명시적 선택입니다.
+func TestClientIPTrustedProxies(t *testing.T) {
+	s := &server{cfg: config{trustedProxies: parseTrustedProxies("127.0.0.1, 10.0.0.0/8")}}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("CF-Connecting-IP", "198.51.100.7")
+	for peer, want := range map[string]string{
+		"127.0.0.1:1":    "198.51.100.7",
+		"10.1.2.3:1":     "198.51.100.7",
+		"127.0.0.2:1":    "127.0.0.2", // 목록에 없는 루프백 주소
+		"[::1]:1":        "::1",
+		"203.0.113.5:80": "203.0.113.5",
+	} {
+		r.RemoteAddr = peer
+		if got := s.clientIP(r); got != want {
+			t.Errorf("peer %s: got %q, want %q", peer, got, want)
+		}
+	}
+}
+
+func TestParseTrustedProxies(t *testing.T) {
+	got := parseTrustedProxies(" 127.0.0.1 , 10.0.0.0/8,::1, bogus, 300.1.1.1, ")
+	want := []string{"127.0.0.1/32", "10.0.0.0/8", "::1/128"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i].String() != want[i] {
+			t.Errorf("[%d] got %s, want %s", i, got[i], want[i])
+		}
+	}
+	if p := parseTrustedProxies(""); len(p) != 0 {
+		t.Fatalf("빈값은 빈 목록이어야 함: %v", p)
+	}
+}
+
+// TestListenUnixTrustsForwardedHeaders는 실제 unix 소켓 리스너로 들어온 요청만 포워딩
+// 헤더를 믿고, 같은 핸들러라도 루프백 TCP로 들어오면 믿지 않는지 끝에서 끝까지 확인합니다.
+func TestListenUnixTrustsForwardedHeaders(t *testing.T) {
+	s := &server{}
+	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, s.clientIP(r))
+	})
+	sock := filepath.Join(t.TempDir(), "panel.sock")
+	uln, err := listen("unix:" + sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tln, err := listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ln := range []net.Listener{uln, tln} {
+		srv := &http.Server{Handler: echo, ConnContext: proxyConnContext, ReadHeaderTimeout: 5 * time.Second}
+		go func() { _ = srv.Serve(ln) }()
+		t.Cleanup(func() { _ = srv.Close() })
+	}
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("socket perm = %v, want 0600", fi.Mode().Perm())
+		}
+	}
+
+	get := func(c *http.Client, url string) string {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("CF-Connecting-IP", "198.51.100.7")
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+	unixClient := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", sock)
+		},
+	}}
+	if got := get(unixClient, "http://panel/"); got != "198.51.100.7" {
+		t.Errorf("unix socket: got %q, want 198.51.100.7", got)
+	}
+	tcpClient := &http.Client{Timeout: 5 * time.Second}
+	if got := get(tcpClient, "http://"+tln.Addr().String()+"/"); got != "127.0.0.1" {
+		t.Errorf("loopback TCP: got %q, want 127.0.0.1", got)
+	}
+}
+
+// TestListenUnixSocketFile은 소켓 경로 처리 규칙을 고정합니다. 비정상 종료로 남은 소켓
+// 파일은 지우고 다시 열지만, 소켓이 아닌 파일은 지우지 않고 거부합니다.
+func TestListenUnixSocketFile(t *testing.T) {
+	if _, err := listen("unix:relative.sock"); err == nil {
+		t.Error("상대 경로는 거부해야 함")
+	}
+	dir := t.TempDir()
+	regular := filepath.Join(dir, "not-a-socket")
+	if err := os.WriteFile(regular, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if ln, err := listen("unix:" + regular); err == nil {
+		_ = ln.Close()
+		t.Error("일반 파일 경로는 거부해야 함")
+	}
+	if b, _ := os.ReadFile(regular); string(b) != "keep" {
+		t.Error("일반 파일이 지워지거나 바뀜")
+	}
+
+	if runtime.GOOS == "windows" { // 윈도우 AF_UNIX 파일은 소켓 모드 비트로 구분되지 않습니다
+		return
+	}
+	sock := filepath.Join(dir, "stale.sock")
+	ln, err := listen("unix:" + sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false) // 비정상 종료 흉내: 소켓 파일을 남긴다
+	_ = ln.Close()
+	ln2, err := listen("unix:" + sock)
+	if err != nil {
+		t.Fatalf("남은 소켓 파일을 정리하지 못함: %v", err)
+	}
+	_ = ln2.Close()
 }
 
 func TestSessionRevocation(t *testing.T) {
@@ -341,20 +493,22 @@ func TestRunHealthcheck(t *testing.T) {
 // 이 값은 레이트 리밋 맵의 키와 경보 메시지에 그대로 쓰이므로, 검증이 없으면 요청마다
 // 키를 바꿔 IP별 리미터를 무력화하거나 임의 문자열을 웹훅 본문에 밀어 넣을 수 있습니다.
 func TestClientIPRejectsNonIPHeader(t *testing.T) {
+	// 헤더를 믿는 경로(신뢰 프록시로 지정한 루프백)에서 값 검증만 따로 확인합니다.
+	s := &server{cfg: config{trustedProxies: parseTrustedProxies("127.0.0.1")}}
 	cases := []struct{ name, header, value string }{
 		{"cf 임의 문자열", "CF-Connecting-IP", "@everyone"},
 		{"cf 빈 값에 가까운 공백", "CF-Connecting-IP", "   "},
 		{"cf 호스트명", "CF-Connecting-IP", "evil.example.com"},
 		{"cf 과다 길이", "CF-Connecting-IP", strings.Repeat("A", 4096)},
 		{"xff 임의 문자열", "X-Forwarded-For", "not-an-ip"},
-		{"xff 첫 값이 비정상", "X-Forwarded-For", "bogus, 8.8.8.8"},
+		{"xff 마지막 값이 비정상", "X-Forwarded-For", "8.8.8.8, bogus"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/", nil)
 			r.RemoteAddr = "127.0.0.1:9999"
 			r.Header.Set(c.header, c.value)
-			if got := clientIP(r); got != "127.0.0.1" {
+			if got := s.clientIP(r); got != "127.0.0.1" {
 				t.Errorf("검증되지 않은 헤더 값이 채택됨: %q", got)
 			}
 		})
@@ -363,7 +517,7 @@ func TestClientIPRejectsNonIPHeader(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "127.0.0.1:9999"
 	r.Header.Set("CF-Connecting-IP", " 203.0.113.9 ")
-	if got := clientIP(r); got != "203.0.113.9" {
+	if got := s.clientIP(r); got != "203.0.113.9" {
 		t.Errorf("정상 IP가 채택되지 않음: %q", got)
 	}
 }

@@ -47,8 +47,8 @@
   트리(드래그앤드롭)·인스펙터로 화면을 시각 편집하고 발행합니다. 드래프트 자동저장,
   실행취소/재실행, 발행 전 스키마·상한 사전검사. 관리자 로그인은 `PANEL_ADMIN_CODE`.
 - **PWA** — 서비스 워커로 설치 가능·오프라인 앱 셸 지원, 라이트/다크 테마.
-- **보안 강화** — 터널 뒤 루프백 바인딩 API, 서버 측 세션, IP·세션별 레이트 리밋,
-  입력 새니타이즈, 엄격한 보안 헤더.
+- **보안 강화** — 터널 뒤 루프백·unix 소켓 바인딩 API, 서버 측 세션, IP·세션별 레이트 리밋,
+  공유 비밀로 잠근 내부 API, 입력 새니타이즈, 엄격한 보안 헤더.
 
 ## 아키텍처
 
@@ -69,13 +69,15 @@ flowchart LR
   PWA -- "HTTPS (동일 출처)" --> Static
   PWA -- "Bearer 세션" --> API
   API --- DB
-  Bot -- "POST /internal/ingest (루프백)" --> Health
+  Bot -- "POST /internal/ingest (루프백 + 공유 비밀)" --> Health
   KubeJS -- "status/perf JSON" --> API
   API -- "web_outbox/*.json" --> Bot
 ```
 
 Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 저장되고, 봇은 게임·디스코드
 이벤트를 루프백 내부 API로 넘기는 순수 브리지입니다(실패 시 JSON 파일 폴백 → 임포터가 수습).
+내부 API는 루프백이라는 사실만으로 믿지 않고, 봇과 공유하는 비밀(`PANEL_INTERNAL_TOKEN_FILE`)을
+`Authorization: Bearer`로 요구합니다. 비밀이 없으면 503으로 닫힙니다.
 상태·성능은 서버 측 KubeJS가 쓰는 JSON 파일을 읽습니다. [데모 모드](#로컬-실행)는 이
 연동들을 샘플 데이터로 대체한 것입니다.
 
@@ -110,10 +112,10 @@ Go API가 채팅 허브입니다. 채팅·타임라인은 SQLite(`panel.db`)에 
 | GET/POST | `/api/chat` | Bearer | 통합 피드 읽기(`since`=전방 폴링·`before`=과거 로딩) / 웹 메시지 전송(저장 즉시 `{id,ts}` 반환) |
 | GET | `/api/timeline` | Bearer | 접속 이벤트(join/leave) — 타임라인 탭용 |
 | GET | `/api/layout` | — | 서버별 페이지 구성(레이아웃 JSON). 파일 부재·손상 시 기본 레이아웃 반환 |
-| PUT | `/api/layout` | Bearer(관리자) | 레이아웃 발행 — 스키마 검증·세션당 분당 10회 제한·감사 로그. 데모 모드에선 403. 루프백 리스너에선 무인증 사용 가능(도구용) |
+| PUT | `/api/layout` | Bearer(관리자) | 레이아웃 발행 — 스키마 검증·세션당 분당 10회 제한·감사 로그. 데모 모드에선 403. 루프백 리스너에서는 관리자 세션 대신 내부 API 공유 비밀로 사용(도구용) |
 | GET/POST | `/api/push/config` · `/api/push/subscribe` · `/api/push/unsubscribe` | Bearer | 웹 푸시(VAPID) 구성 조회(키+서버가 켠 알림 종류 `PANEL_PUSH_EVENTS`)·구독(종류 선택 `topics`)·해지 — 서버 다운/복구·접속 알림. iOS는 16.4+ 홈 화면 설치 시 |
 | GET | `/healthz` | — | 루프백 전용 헬스 체크(가동 모니터링용) |
-| * | `/internal/*` | 루프백 | 봇 전용 내부 API(수집·세션 목록·회수) — 인터넷 노출 리스너에는 없음 |
+| * | `/internal/*` | 루프백 + 공유 비밀 | 봇 전용 내부 API(수집·세션 목록·회수) — 인터넷 노출 리스너에는 없음. 비밀 미설정 시 503 |
 
 ## 로컬 실행
 
@@ -148,7 +150,9 @@ docker run --rm -p 8080:8080 mc-panel-pwa   # 기본이 데모 모드(코드 000
 ```
 
 Go 바이너리가 정적 사이트와 API를 함께 서빙하므로, 배포는 HTTPS 리버스 프록시나 터널 뒤의
-단일 프로세스로 끝납니다. **데모 빌드/브랜치**는 `PANEL_DEMO=true`만 주면 되고, 정적 + Go
+단일 프로세스로 끝납니다. 클라이언트 IP(레이트 리밋 키)를 위한 포워딩 헤더는 unix 소켓
+(`PANEL_LISTEN=unix:/경로`)으로 들어온 요청이나 `PANEL_TRUSTED_PROXIES`에 적은 TCP 프록시에서만
+믿으므로, cloudflared 같은 터널은 unix 소켓으로 붙이는 것을 권장합니다. **데모 빌드/브랜치**는 `PANEL_DEMO=true`만 주면 되고, 정적 + Go
 산출물을 실행할 수 있는 어디서든 호스팅할 수 있습니다.
 
 ## 보안

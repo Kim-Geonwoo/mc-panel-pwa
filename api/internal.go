@@ -1,19 +1,96 @@
 package main
 
 // 내부(루프백) API: 봇처럼 같은 호스트에서 도는 신뢰된 프로세스 전용 엔드포인트로,
-// 헬스 리스너(기본 127.0.0.1:8099)에만 등록합니다. 공유 파일(0600)과 동일한 신뢰
-// 모델입니다 — 같은 호스트·같은 계정이면 어차피 파일을 직접 읽고 쓸 수 있으므로
-// 별도 토큰을 두지 않습니다. 인터넷에 노출되는 메인 리스너(8080)에는 절대 등록하지
-// 않습니다.
+// 헬스 리스너(기본 127.0.0.1:8099)에만 등록합니다. 인터넷에 노출되는 메인 리스너(8080)에는
+// 절대 등록하지 않습니다.
+//
+// 루프백이라는 사실만으로는 믿지 않습니다. 같은 호스트의 다른 계정도 127.0.0.1에 닿고,
+// userspace 모드 tailscaled처럼 들어온 연결을 127.0.0.1로 넘겨 주는 프로세스가 있으면
+// 바깥 요청도 루프백에서 온 것처럼 보입니다. 그래서 봇과 공유하는 비밀(0600 파일 권장)을
+// Authorization: Bearer로 받아 상수 시간으로 비교합니다. 비밀이 설정되지 않았으면 내부
+// 경로는 모두 503으로 닫힙니다.
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
+	"strings"
 	"time"
 )
 
 var kstZone = time.FixedZone("KST", 9*3600)
+
+// minInternalTokenLen은 공유 비밀의 최소 길이입니다. `openssl rand -hex 32`(64자)를 권장합니다.
+const minInternalTokenLen = 32
+
+// loadInternalToken은 내부 API 공유 비밀을 PANEL_INTERNAL_TOKEN_FILE(0600 파일, 권장)이나
+// PANEL_INTERNAL_TOKEN(환경변수)에서 읽습니다. 둘 다 비어 있으면 ("", nil)이고 내부 API는
+// 닫힙니다. 둘 다 설정했거나, 파일을 읽을 수 없거나, 다른 사용자가 읽을 수 있는 권한이거나,
+// 너무 짧으면 오류를 돌려줍니다. 오류 메시지에는 비밀 값을 넣지 않습니다.
+func loadInternalToken() (string, error) {
+	path := os.Getenv("PANEL_INTERNAL_TOKEN_FILE")
+	tok := os.Getenv("PANEL_INTERNAL_TOKEN")
+	switch {
+	case path != "" && tok != "":
+		return "", errors.New("PANEL_INTERNAL_TOKEN과 PANEL_INTERNAL_TOKEN_FILE은 하나만 설정하세요")
+	case path != "":
+		fi, err := os.Stat(path)
+		if err != nil {
+			return "", err
+		}
+		// 윈도우는 유닉스 권한 비트를 쓰지 않으므로 검사하지 않습니다.
+		if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
+			return "", fmt.Errorf("%s 권한이 %v입니다 — 소유자만 읽도록 0600으로 두세요", path, fi.Mode().Perm())
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		tok = string(b)
+	case tok == "":
+		return "", nil
+	}
+	tok = strings.TrimSpace(tok)
+	if len(tok) < minInternalTokenLen {
+		return "", fmt.Errorf("내부 API 공유 비밀은 %d자 이상이어야 합니다", minInternalTokenLen)
+	}
+	return tok, nil
+}
+
+// internalAuth는 내부 API 핸들러 앞에서 공유 비밀(Authorization: Bearer)을 검사합니다.
+// 비밀이 설정되지 않았으면 모든 요청을 503으로 거절합니다. 봇은 5xx를 받으면 기존 파일
+// 경로로 물러나므로, 이행 중에도 기록을 잃지 않습니다.
+func (s *server) internalAuth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.internalToken == "" {
+			s.writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "internal_disabled"})
+			return
+		}
+		if !internalTokenMatch(bearerOf(r), s.cfg.internalToken) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="internal"`)
+			s.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		h(w, r)
+	}
+}
+
+// internalTokenMatch는 받은 값과 공유 비밀을 상수 시간으로 비교합니다. 양쪽의 SHA-256
+// 다이제스트를 비교해 길이가 다른 값도 같은 시간에 거절합니다.
+func internalTokenMatch(got, token string) bool {
+	if got == "" || token == "" {
+		return false
+	}
+	a := sha256.Sum256([]byte(got))
+	b := sha256.Sum256([]byte(token))
+	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
+}
 
 // handleInternalIngest는 봇이 보내는 채팅/타임라인 레코드를 DB에 저장합니다.
 // id·ts는 API가 부여합니다(단일 id 권위 = DB). 성공 시 {"id","ts"}를 돌려줍니다.
